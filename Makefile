@@ -114,6 +114,11 @@ LanMan_MH.h: LanMan_MH.o
 .cmhg.o:;   ${CMHG} ${CMHGFLAGS} -o $@ $< -d $*.h
 .s.o:;      ${AS} ${AFLAGS} $< $@
 
+# Binary Build Environment augmenting rules
+BBETYPE   = local
+bbe-local: bbe-generic-resources-get-alias
+	BBE_Export_File Sprites
+
 #
 # Build target
 #
