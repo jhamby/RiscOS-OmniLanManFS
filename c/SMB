@@ -29,6 +29,10 @@
 *                  by LONGNAMES macro.
 *  08-12-98      sbrodie: Added SMB_Transact2 with full support for setup
 *                  words and the like (present only for LONGNAMES build)
+*                  Several new functions added to support long filename
+*                  compatible versions of some calls,  These functions have
+*                  the same name as the function they upgrade with an X2 suffix
+*                  added.
 */
 
 /* A word about 'drive letters':
@@ -222,6 +226,7 @@ typedef struct
 /* And now the sub-commands for SMBtrans2 */
 #define TRANSACT2_FINDFIRST   0x01
 #define TRANSACT2_FINDNEXT    0x02
+#define TRANSACT2_QUERYPATHINFORMATION 0x05
 #endif
 
 
@@ -330,7 +335,7 @@ static int DOS_Errs[] =
   18, ENOMOREFILES,
   2,  EFILENOTFOUND,
   12, ENOTPRESENT,  /* Returned by OS2-Connect from SetAttrib */
-  50, ENOTPRESENT,  /* Returned by W4WG from SetAttrib call */
+  50, ENOTPRESENT,  /* Return~ed by W4WG from SetAttrib call */
   110, EFILENOTFOUND, /* Returned by OS2 servers for hidden files */
   3,  EPATHNOTFOUND,
   1,  EBADPARAM,
@@ -474,9 +479,23 @@ static void DumpBuffer(void *ptr, int len)
     SMB_RxByteCount.
 */
 
+#ifdef LONGNAMES
+//#define RETRYONERROR
+//#define PINGFIRST
+#endif
+
 static err_t Do_SMB ( hSHARE hS, int cmd, int wct_in, BUFCHAIN pB_in,
                       BUFCHAIN *ppB_out )
 {
+#ifdef RETRYONERROR
+  static const int xmit_size = SMBWORKBUF_SIZE + SMBHDR_SIZE + MAX_WCT * 2;
+  static BYTE SMB_XmitMemory[SMBWORKBUF_SIZE + SMBHDR_SIZE + MAX_WCT * 2];
+  int len, retry;
+#endif
+#ifdef PINGFIRST
+  BUFCHAIN ping_in;
+  static SMBHDR ping_hdr;
+#endif
   err_t res;
   int  wct_rx;
   BUFCHAIN pB_rx;
@@ -528,9 +547,43 @@ if (cmd == SMBtrans2 && SMB_TxWords[14] == 2) {
 }
 #endif
 
+#ifdef RETRYONERROR
+  len = ChainLen(pB_in);
+  GetData ( pB_in, SMB_XmitMemory, xmit_size );
+  retry = 1; /* number of retries to attempt */
+do_smb_retry:
+  pB_in = AddChain ( NULL, SMB_XmitMemory, len );
+  if ( pB_in == NULL )
+  return EOUTOFMEM;
+#endif
+
+#ifdef PINGFIRST
+  NB_ClearRxQueue ( hSess );
+  ping_hdr = SMB_TxHdr;
+  ping_hdr.command = SMBecho;
+  ping_hdr.wct = 1;
+  ping_hdr.tid = 0;
+  ping_hdr.mid = 2;
+  ping_in = AddChain ( NULL, "\x01\x00\x02\x00\xA8\x00", 6 );
+  if (ping_in) ping_in = AddChain( ping_in , &ping_hdr, SMBHDR_SIZE );
+  if (ping_in) {
+    res = NB_SendData ( hSess, ping_in );
+    if ( res != OK )
+      return res;
+    res = NB_GetData ( hSess, &pB_rx, REPLY_TIMEOUT );
+    if (res != OK)
+      return res;
+    GetData ( pB_rx, NULL, SMBHDR_SIZE + 6 );
+    FreeChain ( pB_rx );
+  }
+#endif
+
   /* Send data */
 
-  NB_ClearRxQueue ( hSess );
+  res = NB_ClearRxQueue ( hSess );
+  if (res != OK) {
+    debug0("****************** NB_ClearRxQueue says there was stuff pending!!!!!!!!\n");
+  }
 
   res = NB_SendData ( hSess, pB_in );
   if ( res != OK )
@@ -542,7 +595,7 @@ if (cmd == SMBtrans2 && SMB_TxWords[14] == 2) {
     return res;
 
   /* Extract received data */
-  debug1("Do_SMB - NB_GetData returned %d bytes\n", ChainLen(pB_rx));
+  debug2("Do_SMB (cmd=0x%x) - NB_GetData returned %d bytes\n", cmd, ChainLen(pB_rx));
 
   SMB_RxHdr.wct = 0;
   SMB_RxByteCount = 0;
@@ -557,6 +610,12 @@ if (cmd == SMBtrans2 && SMB_TxWords[14] == 2) {
   {
     debug1("Do_SMB: errclass was %d\n", SMB_RxHdr.errclass);
     FreeChain(pB_rx);
+#ifdef RETRYONERROR
+    if (SMB_RxHdr.errclass == ERRSRV && SMB_RxHdr.errlo == 1 && SMB_RxHdr.errhi == 0 && retry) {
+      --retry;
+      goto do_smb_retry;
+    }
+#endif
     return Err_Translate ( SMB_RxHdr.errclass,
         SMB_RxHdr.errlo + (SMB_RxHdr.errhi << 8) );
   }
@@ -1097,7 +1156,7 @@ static void FreeShare ( hSHARE hS )
    OK; it is acceptable to test either.
 */
 
-static hSHARE GetShare ( char *filename, err_t *pRes )
+static hSHARE GetShare ( const char *filename, err_t *pRes )
 {
   uint tmp;
   hSHARE hS;
@@ -1141,6 +1200,24 @@ static hSHARE GetShare ( char *filename, err_t *pRes )
 
   *pRes = OK;
   return hS;
+}
+
+
+/* ---------------------------- */
+
+/* SMB_IsLongNameFS() returns true if the path refers to a share which is using long
+    filenames.  Xlate.c needs to know this in order to determine which set of file
+    mappings is to be used.
+ */
+bool SMB_IsLongNameFS( const char * path)
+{
+  err_t e;
+  hSHARE hS;
+
+  hS = GetShare(path, &e);
+  if (e != OK) return false;
+  if (hS->use_t2) return true;
+  return false;
 }
 
 /* ---------------------------- */
@@ -1506,6 +1583,50 @@ err_t SMB_Rename ( char *oldpath, char *newpath )
 
 /* --------------------------- */
 
+#ifdef LONGNAMES
+
+/* Microsoft servers not sending them in the documented order */
+static void swap_time_date(BYTE *p)
+{
+        BYTE swp;
+
+        swp = p[0];
+        p[0] = p[2];
+        p[2] = swp;
+
+        swp = p[1];
+        p[1] = p[3];
+        p[3] = swp;
+}
+
+static err_t SMB_GetAttribsX2 (hSHARE hS, char *filename, DOS_ATTRIBS *pAttr )
+{
+  err_t res;
+  static struct TransactParms tp;
+
+  Transact_init(&tp, 1 * 2);
+  Transact_addsetupword(&tp, TRANSACT2_QUERYPATHINFORMATION);
+  Transact_addword(&tp, 1);  /* information level */
+  Transact_addlong(&tp, 0L); /* Reserved */
+  Transact_addstring(&tp, filename+2);
+  res = SMB_Transact2(hS, &tp);
+  if (res != OK)
+    return res;
+  /*
+   * OK.  Who decided that this call should return data in a different
+   * format than the FindFirst/FindNext calls.  Need to reverse the times
+   * and dates of the file before calling Xlt to expand them ...
+   */
+  swap_time_date(tp.data_out_buf);
+  swap_time_date(tp.data_out_buf+4);
+  swap_time_date(tp.data_out_buf+8);
+  /* end workaround */
+  return Xlt_ExpandSearchEntryX2 ( tp.data_out_buf, NULL, NULL, pAttr, NULL);
+}
+#endif /* LONGNAMES */
+
+/* --------------------------- */
+
 #if 0
 err_t SMB_GetAttribs ( char *filename, DOS_ATTRIBS *pAttr )
 {
@@ -1548,6 +1669,11 @@ err_t SMB_GetAttribs ( char *filename, DOS_ATTRIBS *pAttr )
   hS = GetShare (filename, &res);
   if ( hS == NULL )
     return res;
+
+#ifdef LONGNAMES
+  if (hS->use_t2)
+    return SMB_GetAttribsX2 (hS, filename, pAttr );
+#endif
 
   pB = MkDataBlock ( NULL, DATA_VARBLK, NULL, 0, false );
   if ( pB != NULL )
@@ -1691,6 +1817,11 @@ static hSHARE SearchDrive;
 
 #ifdef LONGNAMES
 
+/* Note.
+ *
+ * Requesting close_if_done doesn't seem to work (at least on NT 4.0 SP3)
+ *
+ */
 enum {
         ffirst_FORCE_CLOSE = 1,
         ffirst_CLOSE_IF_DONE = 2,
@@ -2452,7 +2583,8 @@ static err_t SMB_Transact2 ( hSHARE hS, struct TransactParms *pT )
   int   padbytes;    /* Temp variable */
   int   sc;
 
-  debug1("SMB_Transact2: processing (Tid = %#04x)...\n", hS->Tid);
+  debug2("SMB_Transact2: processing (Tid = %#04x, sub-cmd=%#04x)...\n", hS->Tid,
+    pT->setup_in[0]);
 
   SMB_TxWords[0]  = pT->parms_in_len; /* Total length */
   SMB_TxWords[1]  = pT->data_in_len; /* Total length */
@@ -2531,7 +2663,7 @@ static err_t SMB_Transact2 ( hSHARE hS, struct TransactParms *pT )
                           /* Parm bytes being returned */
   pT->data_out_len  = min(SMB_RxWords[6], pT->data_out_maxlen);
                           /* Data bytes being returned */
-  pT->setup_out_len = min(SMB_RxWords[9], pT->setup_out_maxlen);
+  pT->setup_out_len = min(SMB_RxWords[9] & 0xFF, pT->setup_out_maxlen);
 
   if (pT->setup_out_len > 0 )          /* Get setup_out */
   {
@@ -2555,7 +2687,7 @@ static err_t SMB_Transact2 ( hSHARE hS, struct TransactParms *pT )
     if ( padbytes > 0 )
       pBres = GetData(pBres, NULL, padbytes);
     pBres = GetData(pBres, pT->data_out_buf, pT->data_out_len);
-    //DumpBuffer(pT->data_out_buf, pT->data_out_len);
+    //if (pT->setup_in[0] == 5) DumpBuffer(pT->data_out_buf, pT->data_out_len);
   }
 
   if ( pBres == NULL ) {  /* Oh no! Techo fear! */

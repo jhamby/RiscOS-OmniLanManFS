@@ -244,8 +244,12 @@ extern err_t SMB_Shutdown ( void );
 #ifdef LONGNAMES
 /* Need a much larger buffer */
 #define SMBWORKBUF_SIZE 16384
-extern BYTE SMB_WorkBuf[SMBWORKBUF_SIZE];
+#define SMBXMITMEM_SIZE SMBWORKBUF_SIZE
 #else
 #define SMBWORKBUF_SIZE 1500
+#endif
 extern BYTE SMB_WorkBuf[SMBWORKBUF_SIZE];
+
+#ifdef LONGNAMES
+extern bool SMB_IsLongNameFS( const char * path);
 #endif

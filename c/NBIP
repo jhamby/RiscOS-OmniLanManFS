@@ -58,6 +58,8 @@
 #include "lmvars.h"
 #include "nbip.h"
 
+#include "LanMan_MH.h"
+
 #define EXPORT static
 
 
@@ -1121,7 +1123,7 @@ static bool CallbackSet = false;
 
 /* ---------------- */
 
-int EventFn_handler ( _kernel_swi_regs *R, int pw )
+int EventFn_handler ( _kernel_swi_regs *R, void *pw )
 {
   (void) pw;
 
@@ -1131,12 +1133,11 @@ int EventFn_handler ( _kernel_swi_regs *R, int pw )
   {
     STAT(STA_IP_EVENTS);
     CallbackSet = true;
-    _swi(OS_AddCallBack, _INR(0,1), (int)NBIP_CallbackFn, LM_pw);
+    _swi(OS_AddCallBack, _INR(0,1), NBIP_CallbackFn, LM_pw);
   }
 
   return 1; /* Don't claim, others may wish to know */
 }
-
 
 /* -------------------------------- */
 
@@ -1146,6 +1147,7 @@ int NBIP_CallbackFn_handler(void)
   struct timeval tv;
   int    len, flen;
   struct sockaddr sa;
+
 
   CallbackSet = false;
 
@@ -1172,6 +1174,14 @@ int NBIP_CallbackFn_handler(void)
 
   return 1;
 }
+
+int NBIP_CallbackFn_handler_ctrl(_kernel_swi_regs *r, void *pw)
+{
+  (void) r;
+  (void) pw;
+  return NBIP_CallbackFn_handler();
+}
+
 
 /* Exported routines: name service & general =========================== */
 
@@ -1497,7 +1507,7 @@ static NBIP_SESSION *ValidatehSession( hSESSION hSess )
 
 /* ------------------- */
 
-static bool ReadData ( int sid, BYTE *where, int len, uint timeout )
+static bool ReadData ( int sid, BYTE *where, int len, uint timeout, int flags )
 {
   uint tstart;
   fd_set read_set;
@@ -1516,11 +1526,14 @@ static bool ReadData ( int sid, BYTE *where, int len, uint timeout )
 
     FD_ZERO(&read_set);
     FD_SET( sid, &read_set );
-    if ( select ( FD_SETSIZE, &read_set, NULL, NULL, &tv ) != 0 )
+    /* SNB: Changed first param to sid+1 - is more efficient as Internet module
+     * no longer has to search entire array for set bits */
+    if ( select ( sid + 1, &read_set, NULL, NULL, &tv ) != 0 )
     {
-      rdlen = recv ( sid, where, len, 0 );
+      rdlen = recv ( sid, where, len, flags );
       if ( rdlen > 0 )
       {
+        if (flags & MSG_PEEK) break;
         len -= rdlen;
         where += rdlen;
         tstart = NB_GetTime();
@@ -1586,7 +1599,7 @@ static err_t ConnectAttempt ( NBIP_SESSION *pNS, NETNAME *pnnFarEnd )
 
   /* Now get reply */
 
-  if ( !ReadData(pNS->sid, DatagramBuf, 4, RECV_TIMEOUT) )
+  if ( !ReadData(pNS->sid, DatagramBuf, 4, RECV_TIMEOUT, 0) )
     return ETIMEOUT;
 
   switch ( DatagramBuf[0] )
@@ -1598,7 +1611,7 @@ static err_t ConnectAttempt ( NBIP_SESSION *pNS, NETNAME *pnnFarEnd )
       return ECONNREJECT;
 
     case NBIP_SESS_RETARGET:
-      if ( !ReadData( pNS->sid, DatagramBuf, 6, RECV_TIMEOUT) )
+      if ( !ReadData( pNS->sid, DatagramBuf, 6, RECV_TIMEOUT, 0) )
         return EDATALEN;
       pNS->rmt_addr.sin_addr = GetIPAddr( DatagramBuf );
       pNS->rmt_addr.sin_port = htons(GetShort( DatagramBuf+4 ));
@@ -1775,6 +1788,19 @@ EXPORT err_t _NB_SendBlockData ( hSESSION hS, BYTE *where, int datalen )
 
 EXPORT err_t _NB_ClearRxQueue ( hSESSION hS )
 {
+#ifdef LONGNAMES
+  NBIP_SESSION *pNS;
+  BYTE buf[4];
+
+  pNS = ValidatehSession(hS);
+  if ( pNS == NULL )
+    return EBADPARAM;
+  if ( !ReadData(pNS->sid, buf, 4, 0, MSG_PEEK) )
+  {
+    return OK;
+  }
+  return ERXNOTREADY;
+#endif
   (void) hS;
   /* ClearRxQueue - not needed? !! */
   return OK;
@@ -1798,7 +1824,7 @@ EXPORT err_t _NB_GetData ( hSESSION hS, BUFCHAIN *pOutData, int timeout )
 
   /* Get header */
 retry:
-  if ( !ReadData(pNS->sid, hdr, 4, timeout) )
+  if ( !ReadData(pNS->sid, hdr, 4, timeout, 0) )
   {
     pNS->LinkOK = false;
     return ETIMEOUT;
@@ -1820,7 +1846,7 @@ retry:
 
   while ( GetBlockPointer(&GBP) )
   {
-    if ( !ReadData(pNS->sid, GBP.pBlock, GBP.BlockLen, timeout) )
+    if ( !ReadData(pNS->sid, GBP.pBlock, GBP.BlockLen, timeout, 0) )
     {
       pNS->LinkOK = false;
       FreeChain(Chain);
@@ -1851,7 +1877,7 @@ EXPORT err_t _NB_GetBlockData ( hSESSION hS, BYTE *where, int *len_in_out,
 
   /* Get header */
 retry:
-  if ( !ReadData(pNS->sid, hdr, 4, timeout) )
+  if ( !ReadData(pNS->sid, hdr, 4, timeout, 0) )
   {
     pNS->LinkOK = false;
     return ETIMEOUT;
@@ -1865,7 +1891,7 @@ retry:
   }
 
   len &= 0x1FFFF; /* Max 128K of data */
-  if ( !ReadData(pNS->sid, where, len, timeout) )
+  if ( !ReadData(pNS->sid, where, len, timeout, 0) )
   {
     pNS->LinkOK = false;
     return ETIMEOUT;

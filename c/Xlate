@@ -33,6 +33,7 @@
 #include "attr.h"
 #include "omni.h"
 #include "lmvars.h"
+#include "SMB.h"
 
 /* stricmp(): ignore-case string compare ------------------------ */
 /* returns 0 if they match, > 0 if s1 > s2, < 0 if s1 < s2 */
@@ -119,6 +120,10 @@ static uint DMYtoUtime ( int dtime, int ddate )
   sec = (dtime & 31) << 1;
   min = (dtime >> 5) & 63;
   hrs = (dtime >> 11) & 31;
+
+  debug2("%08x %08x => ", dtime, ddate);
+  debug3("HH:MM:SS => %02d:%02d:%02d   ", hrs, min, sec);
+  debug3("DD:MM:YY => %02d:%02d:%04d \n", dd, mm, yy + 1980);
 
   /* Calc. no. of days since 1-1-70 */
   x = 3652 + (yy*365) + ((yy+3)/4);
@@ -535,6 +540,16 @@ static const char nfs_lookup_table[257]=
                                     "ÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏĞÑÒÓÔÕÖ×ØÙÚÛÜİŞß"
                                     "àáâãäåæçèéêëìíîïğñòóôõö÷øùúûüışÿ";
 
+static const char nfs_lookup_inverse_table[257]=
+                                    "________________________________"
+                                    " !\"_<__'()_+,-/.0123456789_;<=>?"
+                                    "_ABCDEFGHIJKLMNOPQRSTUVWXYZ[_]__"
+                                    "`abcdefghijklmnopqrstuvwxyz{|}~_"
+                                    "€‚ƒ„…†‡ˆ‰Š‹Œ‘’“”•–—˜™š›œŸ"
+                                    " ¡¢£¤¥¦§¨©ª«¬­®¯°±²³´µ¶·¸¹º»¼½¾¿"
+                                    "ÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏĞÑÒÓÔÕÖ×ØÙÚÛÜİŞß"
+                                    "àáâãäåæçèéêëìíîïğñòóôõö÷øùúûüışÿ";
+
 void Xlt_NameDOStoROX2 ( char *dst, char *src )
 {
   int i;
@@ -549,19 +564,20 @@ void Xlt_NameDOStoROX2 ( char *dst, char *src )
   *dst = 0;
 }
 
-//void Xlt_NameROtoDOSX2 ( char *dst, char *src )
-//{
-//  int i, c;
-//
-//  for ( i=0; i<255; i++ )      /* No limit on length, except 255 chars */
-//  {
-//    c = src[i] & 0xFF;
-//    if (c == 0) break;
-//    *dst++ = nfs_lookup_inverse_table[c];
-//  }
-//
-//  *dst = 0;
-//}
+static err_t Xlt_NameROtoDOSX2 ( char *dst, char *src )
+{
+  int i, c;
+
+  for ( i=0; i<(DOS_NAME_LEN-1); i++ )
+  {
+    c = src[i] & 0xFF;
+    if (c == 0) break;
+    *dst++ = nfs_lookup_inverse_table[c];
+  }
+
+  *dst = 0;
+  return OK;
+}
 #endif
 
 /* --------------------------- */
@@ -616,6 +632,11 @@ err_t Xlt_ConvertPath ( char *name_in, char *name_out )
   }
   else if ( name_in[1] == '.' )
   {
+#ifdef LONGNAMES
+    if (SMB_IsLongNameFS( name_out )) {
+      return ( Xlt_NameROtoDOSX2 ( name_out+2, name_in+1 ) );
+    }
+#endif
     return ( nameROtoDOS ( name_out+2, name_in+1 ) );
   }
 
@@ -720,8 +741,8 @@ err_t Xlt_ExpandSearchEntryX2 ( BYTE *entry, char *path_base,
   if ( da_out != NULL || ra_out != NULL )
   {
     da.attr   = entry[20];
-    da.utime  = DMYtoUtime ( 0, //entry[8] + (entry[9] << 8),
-                          entry[10] + (entry[11] << 8) );
+    da.utime  = DMYtoUtime ( entry[10] + (entry[11] << 8),
+                          entry[8] + (entry[9] << 8) );
     da.length = entry[12] + (entry[13]<<8) +
                        (entry[14]<<16) + (entry[15]<<24);
 
@@ -732,7 +753,6 @@ err_t Xlt_ExpandSearchEntryX2 ( BYTE *entry, char *path_base,
     {
       Xlt_CnvDOStoRO ( &da, ra_out, CNV_DATETIME+CNV_ATTRIBS );
       Attr_GetInfo ( path_base, (char *)entry+23, ra_out );
-
     }
   }
 
