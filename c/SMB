@@ -1785,6 +1785,10 @@ err_t SMB_Rename ( char *oldpath, char *newpath )
   if ( oldpath[0] != newpath[0] )  /* Different drives! */
     return EBADRENAME;
 
+  debug2("SMB_Rename: %s %s\n", oldpath+1, newpath+1);
+  if (strcmp(oldpath+1, newpath+1) == 0)
+    return OK;
+
   hS = GetShare (oldpath, &res);
   if ( hS == NULL )
     return res;

@@ -1293,8 +1293,9 @@ int Xlt_AddROType ( char *leafname, uint loadaddr )
    }
 
    if (Xlt_SplitLeafnameX2 ( leafname, &RA, &terminator) == OK) {
+     int extn_add_or_remove = (*terminator != *typebuf);
      strcpy(terminator, typebuf);
-     return (RA.loadaddr >> 8) != (loadaddr >> 8);
+     return (RA.loadaddr >> 8) != (loadaddr >> 8) || (extn_add_or_remove);
    }
    else {
      strcat(leafname, typebuf);
