@@ -217,33 +217,33 @@ Free_ServiceRoutine ; On entry R0 = reason code 0-3
         TEQ    R1,#0                    ; set Z if R1 was 0 on exit, preserve V
         LDMFD  SP!, {R1, R4, PC}        ; As it says in book
 
-	DCB "Nothing libellous or obscene", 0 ; Contractual obligation
-	ALIGN
+        DCB "Nothing libellous or obscene", 0 ; Contractual obligation
+        ALIGN
 
 ; Collect callbacks routine ------------------------------
 
 ; Long multiplier ----------------------------------------
 ; Taken from Acorn Assembler manual.
 ; extern void OmniS_FastMultiply64(fspc_64 *, unsigned, unsigned);
-	EXPORT OmniS_FastMultiply64
+        EXPORT OmniS_FastMultiply64
 
 OmniS_FastMultiply64
         FunctionEntry
-	STMFD	sp!, {lr}
-	MOVS	lr, a2, LSR #16
-	BIC	a2, a2, lr, LSL #16
-	MOV	ip, a3, LSR #16
-	BIC	a3, a3, ip, LSL #16
-	MUL	a4, a2, a3
-	MUL	a3, lr, a3
-	MUL	a2, ip, a2
-	MULNE	lr, ip, lr
-	ADDS	a2, a2, a3
-	ADDCS	lr, lr, #&10000
-	ADDS	a4, a4, a2, LSL #16
-	ADC	lr, lr, a2, LSR #16
-	STMIA	a1, {a4, lr}
-	Return
+        STMFD   sp!, {lr}
+        MOVS    lr, a2, LSR #16
+        BIC     a2, a2, lr, LSL #16
+        MOV     ip, a3, LSR #16
+        BIC     a3, a3, ip, LSL #16
+        MUL     a4, a2, a3
+        MUL     a3, lr, a3
+        MUL     a2, ip, a2
+        MULNE   lr, ip, lr
+        ADDS    a2, a2, a3
+        ADDCS   lr, lr, #&10000
+        ADDS    a4, a4, a2, LSL #16
+        ADC     lr, lr, a2, LSR #16
+        STMIA   a1, {a4, lr}
+        Return
 
 
 
@@ -284,7 +284,13 @@ OmniS_ResFSStarting ; (int R2, int R3 )
 
 ; Data block
 Resource_Base
+      [ ROMSPRITES
+        ; Slim or low res sprites in ROM to save space
+        ResourceFile "LocalRes:ROM.Sprites", "ThirdParty.OmniClient.LanMan.Sprites"
+      |
+        ; Deep colour high res sprites for RAM modules
         ResourceFile "LocalRes:Sprites", "ThirdParty.OmniClient.LanMan.Sprites"
+      ]
         DCD     0
 
 

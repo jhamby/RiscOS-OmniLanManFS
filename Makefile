@@ -33,7 +33,7 @@ DBG_MODULE = rm.${TARGET}D
 include StdTools
 
 DFLAGS    = -DCOMPAT_INET4 -DLONGNAMES ${OPTIONS}
-AFLAGS    = -depend !Depend ${THROWBACK} -Stamp -quit
+AFLAGS    = -depend !Depend ${THROWBACK} -Stamp -quit -predefine "ROMSPRITES SETL {${ROMSPRITES}}"
 CFLAGS    = -depend !Depend ${THROWBACK} -c -Wpcs -ff -zps1 -zM ${INCLUDES},. ${DFLAGS}
 CMHGFLAGS = -depend !Depend ${THROWBACK} -p ${OPTIONS}
 INCLUDES  = -ITCPIPLibs:,C:
@@ -67,10 +67,10 @@ LanMan_MH.h: LanMan_MH.o
 #
 .SUFFIXES:  .o .od .or .s .c .i .h .cmhg .inst
 .c.o:;      ${CC} ${CFLAGS} -o $@ $<
-.c.or:;      ${CC} ${CFLAGS} -DROM -o $@ $<
-.c.od:;      ${CC} ${CFLAGS} -DDEBUG -DDEBUGLIB -DTRACE -Dprintf=module_printf -o $@ $<
-.c.i:;		$(CC) $(CFLAGS) -c -C -E $< >> $@
-.i.inst:;	$(CC) $(CFLAGS) -C++ -o $@ $<
+.c.or:;     ${CC} ${CFLAGS} -DROM -o $@ $<
+.c.od:;     ${CC} ${CFLAGS} -DDEBUG -DDEBUGLIB -DTRACE -Dprintf=module_printf -o $@ $<
+.c.i:;      $(CC) $(CFLAGS) -c -C -E $< >> $@
+.i.inst:;   $(CC) $(CFLAGS) -C++ -o $@ $<
 .cmhg.o:;   ${CMHG} ${CMHGFLAGS} -o $@ $< -d $*.h
 .cmhg.h:;   ${CMHG} ${CMHGFLAGS} -o $@ -d $<
 .s.o:;      ${AS} ${AFLAGS} $< $@
@@ -100,9 +100,7 @@ rom: ${ROM_MODULE}
 	@echo ${COMPONENT}: rom module built
 
 resources:
-	${MKDIR} ${RESDIR}.${TARGET}
-	${CP} LocalRes:Sprites ${RESDIR}.${TARGET}.Sprites  ${CPFLAGS}
-	@echo ${COMPONENT}: resource files copied
+	@echo ${COMPONENT}: no resource files to copy
 
 preprocess: ${OBJSI} i.dirs
 	@echo ${COMPONENT}: preprocess build complete

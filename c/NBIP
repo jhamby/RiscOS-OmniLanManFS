@@ -62,7 +62,6 @@
 
 #define EXPORT static
 
-
 /* Our definitions ------------------ */
 
 #define EventV         0x10
@@ -1210,10 +1209,16 @@ int EventFn_handler ( _kernel_swi_regs *R, void *pw )
   {
     STAT(STA_IP_EVENTS);
     CallbackSet = true;
-    _swi(OS_AddCallBack, _INR(0,1), NBIP_CallbackFn, LM_pw);
+    _swix(OS_AddCallBack, _INR(0,1), NBIP_CallbackFn, LM_pw);
   }
 
   return 1; /* Don't claim, others may wish to know */
+}
+
+static void RemoveCallbacks(void)
+{
+  _swix(OS_RemoveCallBack, _INR(0,1), NBIP_CallbackFn, LM_pw);
+  CallbackSet = false;
 }
 
 /* -------------------------------- */
@@ -2040,8 +2045,8 @@ EXPORT void _NB_Shutdown(void)
   if ( EventsClaimed )
   {
     EventsClaimed = false;
-    _swi(OS_Release, _INR(0,2), EventV, (int)EventFn, LM_pw);
-    _swi(OS_Byte, _INR(0,1), 13, Internet_Event); /* Disable event */
+    _swix(OS_Release, _INR(0,2), EventV, (int)EventFn, LM_pw);
+    _swix(OS_Byte, _INR(0,1), 13, Internet_Event); /* Disable event */
   }
 
   if ( NBNS_Socket != INVALID_SOCKET )
@@ -2056,6 +2061,8 @@ EXPORT void _NB_Shutdown(void)
       socketclose ( NB_Sessions[i].sid );
       NB_Sessions[i].status = SESS_FREE;
     }
+
+  RemoveCallbacks();
 }
 
 /* NB_Startup() -----------------------------------------------------
@@ -2076,6 +2083,7 @@ static struct sockaddr_in Broadcast_sin;
 
 EXPORT err_t _NB_Startup(void)
 {
+  err_t res;
   int i;
   struct sockaddr_in sa;
   struct ifreq IFR;
@@ -2173,18 +2181,25 @@ EXPORT err_t _NB_Startup(void)
 
   /* It's now ready for action - set up internet event handler */
 
-  CallbackSet = false;
-  _swi(OS_Claim, _INR(0,2), EventV, (int) EventFn, LM_pw);
-  _swi(OS_Byte, _INR(0,1), 14, Internet_Event);  /* Enable event */
-  EventsClaimed = true;
-  debug0("Events claimed\n");
+  /*CallbackSet = false;*/
+  if (!EventsClaimed)
+  {
+    _swix(OS_Claim, _INR(0,2), EventV, (int) EventFn, LM_pw);
+    _swix(OS_Byte, _INR(0,1), 14, Internet_Event);  /* Enable event */
+    EventsClaimed = true;
+    debug0("Events claimed\n");
+  }
 
 //  strcpy ( LM_Vars.drivername, "TCP/IP");
 
   /* Now try to register name... */
 
   debug1("Setting our local name as `%s'\n", LM_Vars.machinename);
-  return _NB_AddLocalName ( ntMACHINE, LM_Vars.machinename, &NB_MachineName);
+  res = _NB_AddLocalName ( ntMACHINE, LM_Vars.machinename, &NB_MachineName);
+  if (res != OK)
+    _NB_Shutdown();
+
+  return res;
 }
 
 /* NB_InternetGone() ---------------------------
@@ -2201,12 +2216,14 @@ static void _NB_InternetGone(void)
 
   for (i=0; i < MAX_SESSIONS; ++i) {
     if (NB_Sessions[i].status == SESS_CONNECTED) {
-      NB_Sessions[i].sid = -1;
+      NB_Sessions[i].sid = INVALID_SOCKET;
       NB_Sessions[i].LinkOK = false;
     }
   }
 
   NBNS_Socket = INVALID_SOCKET;
+
+  RemoveCallbacks();
 }
 
 /* NB_InternetInit() ---------------------------
@@ -2228,7 +2245,7 @@ static void _NB_InternetInit(void)
 
     for (i=0; i < MAX_SESSIONS; ++i) {
       if (NB_Sessions[i].status == SESS_CONNECTED) {
-        NB_Sessions[i].sid = -1;
+        NB_Sessions[i].sid = INVALID_SOCKET;
         NB_Sessions[i].LinkOK = false;
       }
     }

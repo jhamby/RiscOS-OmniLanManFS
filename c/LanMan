@@ -207,7 +207,7 @@ static void LM_Undeclare ( void )
 
 static void LM_GracefulClosedown(void)
 {
-  if (LM_Vars.initialised == LMInitState_FullyInited) {
+  /*if (LM_Vars.initialised == LMInitState_FullyInited)*/ {
     stopcallbacks();
     SMB_Shutdown();            /* Dismounts all SMB mounts first as */
     Omni_Shutdown();           /* Omni_Shutdown zeros the Mounts lists */
@@ -644,7 +644,7 @@ static _kernel_oserror *Cmd_FS ( const char *args )
   {
     char buf[NAME_LIMIT];
     GetFSName(buf);
-    printf("FS           %s\n", buf);
+    printf("FS           %s\n", buf[0] ? buf : "<unset>");
     return NULL;
   }
 
@@ -1052,7 +1052,6 @@ _kernel_oserror *LM_Initialise(const char *cmd_tail, int pod_base, void *pw)
   debug_atexit();
   debug_set_options(0,0,0);
   debug_output_device(DEBUGIT_OUTPUT);
-
   LM_Vars.initialised = LMInitState_Uninitialised;
 
   (void)pod_base;
@@ -1243,7 +1242,7 @@ static void LM_check_driver_status(_kernel_swi_regs *r)
         else {
                 debug0("Ding!  This was our interface\n");
 		if (r->r[2] == 0) {
-		        if (LM_Vars.initialised ==  LMInitState_FullyInited) {
+		        /*if (LM_Vars.initialised ==  LMInitState_FullyInited)*/ {
                         	LM_GracefulClosedown();
 		        }
 	                LM_init_phase_2();
@@ -1342,7 +1341,7 @@ static void LM_check_internet_status(_kernel_swi_regs *r)
 	  if (r->r[2] != 1) return;
         }
 
-	if (LM_Vars.initialised == LMInitState_FullyInited) {
+	/*if (LM_Vars.initialised == LMInitState_FullyInited)*/ {
 	        /* Should never happen nowadays ?? */
 	        LM_GracefulClosedown();
 	}

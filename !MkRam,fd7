@@ -14,4 +14,4 @@
 |
 Dir <Obey$Dir>
 wimpslot 4000k
-amu_machine all OPTIONS=-DCHECK_ARMBOOT_EXISTS
+amu_machine all OPTIONS=-DCHECK_ARMBOOT_EXISTS ROMSPRITES=FALSE

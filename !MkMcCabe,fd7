@@ -14,4 +14,4 @@
 |
 Dir <Obey$Dir>
 wimpslot 8192k
-amu_machine preprocess THROWBACK=-throwback
+amu_machine preprocess THROWBACK=-throwback ROMSPRITES=FALSE

@@ -15,4 +15,4 @@
 Dir <Obey$Dir>
 wimpslot 8192k
 rename i.instlib/c i.instlib
-amu_machine instrument THROWBACK=-throwback
+amu_machine instrument THROWBACK=-throwback ROMSPRITES=FALSE

@@ -58,7 +58,7 @@
 *                        If using Inet$HostName, truncate at first '.'
 *                        Get Mount Info user name bug fix.
 *  1.57 22-Aug-95      Stats added. *LMStats command. Tx window size in
-*			 LLC reduced to 1. T1 retries increased to 20.
+*                        LLC reduced to 1. T1 retries increased to 20.
 *  1.58 07-Sep-95      Auto-reconnect started.
 *  1.59 15-Sep-95      "Reject" storms cured. SMB internals rearranged.
 *  1.60 22-Sep-95      Password/authentication on OS/2 Lanman works
@@ -67,20 +67,20 @@
 *                        added NB_GetBlockData, rearranged startup.
 *  1.63 01-Feb-96      Working title of alpha IP version
 *  1.64 02-Feb-96      Both versions titled LanManFS, IP browsing works,
-*			more 'verbose' bits added.
+*                       more 'verbose' bits added.
 *  1.65 27-Mar-96      LanManIP abort when killing module fixed. !ArmBoot
-*			file running added. Autoboot on startup added.
-*			Alex' strange bugs fixed. *Status/Configure FS.
+*                       file running added. Autoboot on startup added.
+*                       Alex' strange bugs fixed. *Status/Configure FS.
 *  1.66 02-Apr-96      New name-to-IP address discovery added to LanManIP
 *  1.67 11-Apr-96      Filer_runs the !Armboot file if we're in the desktop
 *  1.68 26-Apr-96      Combined NetBEUI & TCPIP transports. Starts TCP/IP
-*			without needing host name set. Transact SWI added.
+*                       without needing host name set. Transact SWI added.
 *  1.69 07-Jun-96      Added 'Logon' Omni icon bits. New icons not drawn yet.
 *  1.70 12-Jun-96      'Logoff' OmniOp added. Sprites added.
 *  1.71 13-Jun-96     Invalidates attribute cache on drive change.
 *  1.72 02-Jul-96     OmniOp 8 changes for automatic logon.
 *  1.73 25-Jul-96     Now does home dir logon. Does disconnect/reconnect if
-*			password changed.
+*                       password changed.
 *  1.74 29-Jul-96     GetDomainController() bug fixed
 *  1.75 07-Nov-96     'Configure LMtransport' CMOS bit moved; server name
 *                        in CMOS no longer conflicts with AUN; 'Account
@@ -92,24 +92,26 @@
 *  1.78 09-Dec-96 NAS Minor tweak to domain logon in Logon.c - doesn't return
 *                       serious login error if home directory invalid
 *  1.79 28-Jan-97 NAS Changed error for 'directory not empty' from 47 to &b4
-* 			to fix NET-01359.
-*		      Also got 'Access not allowed' error returning &b4 because
-*			some servers use that error for delete attempts
+*                       to fix NET-01359.
+*                     Also got 'Access not allowed' error returning &b4 because
+*                       some servers use that error for delete attempts
 *  1.80 10-Feb-97 NAS Fixed NET-01319 to read/write configured server name to
-*			correct location in CMOS
+*                       correct location in CMOS
 *  1.81 20-Mar-97 NAS Fixed NET-01364 wasn't checking Ctrl-terminator on command
-*			tail string (broke *RMLoad under RISC OS 3.1)
+*                       tail string (broke *RMLoad under RISC OS 3.1)
 *  1.82 26-Mar-97 INH SMB_getatr command unusable under NT4.0; uses directory
 *                       search instead (fixed a timestamp bug under NT4).
 *  1.83 21-Apr-97 INH W95 timestamping bugs fixed: (i) File time set to 1 Jan
-*			1970 on file close, (ii) SetAttrib call wouldn't set
-*			the time (now do it by opening & closing file)
+*                       1970 on file close, (ii) SetAttrib call wouldn't set
+*                       the time (now do it by opening & closing file)
 *  1.84 27-Jan-98 RCE Added initialisation of parameters from CMOS (if set).
-*			Also translated RISCOS_Lib os_swi calls to clib _swi,
-*			and added 'preinit' state.
+*                       Also translated RISCOS_Lib os_swi calls to clib _swi,
+*                       and added 'preinit' state.
 *  1.85 24-Jul-98 RCE Added trap for STB OS setting Inet$HostName to ARM_NoName
 *  1.86 28-Jul-98 RCE Added support for NetBIOS Name Server IP address in CMOS
 */
 
-#define VERSION_STRING Module_VersionString " (" Module_Date ")"
+#include "VersionNum"
+
+#define VERSION_STRING Module_VersionString " (" Module_ApplicationDate ")"
 

@@ -1678,13 +1678,12 @@ void Omni_Debug ( void )
 {
   NAMELIST *pNL;
 
-  printf("LanManFS version " VERSION_STRING
-         "\nOmniClient %sstarted\n"
-            "Machine name    : %s\n"
-            "Driver name     : %s\n",
-         Omni_Registered ? "" : "not ",
+  printf("Machine name : %s\n"
+         "Driver name  : %s\n"
+         "OmniClient   : %sstarted\n",
          LM_Vars.machinename,
-         LM_Vars.drivername );
+         LM_Vars.drivername,
+         Omni_Registered ? "" : "not " );
 
   if ( LM_Vars.logged_on )
   {
