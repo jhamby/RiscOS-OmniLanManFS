@@ -725,7 +725,8 @@ _kernel_oserror *fsentry_file( int *R )
       break;
 
     case FSEntry_File_Reason_CreateDirectory:
-      err = SMB_MkDir ( DOSnamebuf );
+     Xlt_CnvRenameX2 ( DOSnamebuf, DOSnamebuf );
+     err = SMB_MkDir ( DOSnamebuf );
       break;
 
     /* Read information calls ---------------------------- */

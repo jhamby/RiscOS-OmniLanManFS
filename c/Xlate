@@ -1309,10 +1309,10 @@ err_t Xlt_CnvRenameX2 ( char *src, char *dst )
 
   // if src and dst are same, check if it should have the ,xxx appended
   // if so, ensure it still is...
-  if(!cnvq)
-  {
-    if((strlen(dst)>4) && (dst[strlen(dst)-4] == ',')) cnvq++;
-  }
+//  if(!cnvq)             // just strip...
+//  {
+//    if((strlen(dst)>4) && (dst[strlen(dst)-4] == ',')) cnvq++;
+//  }
   if (Xlt_SplitLeafnameX2 ( dst, &RA, &nterm ) != OK) {
     /* No type information - find end of string */
     nterm = strchr(dst, '\0');
