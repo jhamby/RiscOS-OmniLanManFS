@@ -960,6 +960,7 @@ static void LM_StartupBoot ( void )
 
 void LM_Boot(void)
 {
+  int tries=1;
   int tmp;
   err_t res;
   char *serv_name;
@@ -985,24 +986,35 @@ void LM_Boot(void)
 
   /* Ready to go... */
 
-  serv_name = RPC_GetDomainController(fs_name);
-  if ( serv_name == NULL )
-    serv_name = fs_name;
+  for (;;) {
+    serv_name = RPC_GetDomainController(fs_name);
+    if ( serv_name == NULL )
+      serv_name = fs_name;
 
-  if ( LM_Vars.verbose )
-    printf("  Server name '%s'\n", serv_name );
+    if ( LM_Vars.verbose )
+      printf("  Server name '%s'\n", serv_name );
 
-  /* Wash'n'go... */
+    /* Wash'n'go... */
 
-  res =  Omni_MountServer ( serv_name,  /* Server */
-          "ARMBOOT", "", /* User name & password */
-          "BOOT",        /* Mountname */
-          "ARMBOOT",     /* Drive name */
-          &tmp );          /* MountID_out */
+    res =  Omni_MountServer ( serv_name,  /* Server */
+            "ARMBOOT", "", /* User name & password */
+            "BOOT",        /* Mountname */
+            "ARMBOOT",     /* Drive name */
+            &tmp );          /* MountID_out */
 
-  if ( res != OK )
-  {
-    printf("  Error during boot: %s\n", Xlt_Error(res)->errmess);
+    if ( res != OK )
+    {
+      printf("  Error during boot: %s\n", Xlt_Error(res)->errmess);
+      /* tmp will be zero unless the share was successfully created */
+      if (tmp == 0)
+      {
+        char var_name[sizeof("Inet$ServerName12")];
+        sprintf(var_name, "Inet$ServerName%d", ++tries);
+        if (!_kernel_getenv(var_name, fs_name, FSERVER_LEN))
+          continue; /* Try next server */
+      }
+    }
+    break;
   }
 }
 

@@ -626,7 +626,7 @@ static err_t Do_SMBResponse(hSHARE hS, int cmd, BUFCHAIN *ppB_out )
   BUFCHAIN pB_rx;
 
   /* Get reply */
-  res = NB_GetData ( hS->hServer->hSession, &pB_rx, REPLY_TIMEOUT );
+  res = NB_GetData ( hS->hServer->hSession, &pB_rx, cmd == SMBchkpth ? 400 : REPLY_TIMEOUT );
   if ( res != OK )
     return res;
 
