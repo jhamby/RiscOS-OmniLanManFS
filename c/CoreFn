@@ -231,9 +231,8 @@ static err_t Func_ReadDir ( int reason, char *path_name, char *buffer,
    */
 
   /* There is no code inside this #ifdef - it just marks my comment. */
-#else
-  if ( n_names*tmp > buflen ) n_names = buflen/tmp;
 #endif
+  if ( n_names*tmp > buflen ) n_names = buflen/tmp;
   if ( n_names <= 0 ) return EBADPARAM;
 
   RD_Reason = reason;
@@ -269,7 +268,7 @@ static err_t Func_ReadDir ( int reason, char *path_name, char *buffer,
        RD_ReqOffset < RD_CurOffset || /* Going back in search */
        strcmp(DOSnamebuf, RD_CurrentPath) != 0 ) /* New directory */
   {
-    debug0("\n>> Start search\n");
+    debug1("\n>> Start search (%s)\n", DOSnamebuf);
     strcpy ( RD_CurrentPath, DOSnamebuf);
     RD_CurOffset = 0;
     res = SMB_ReadDirEntries ( DOSnamebuf, RD_ReqCount+RD_ReqOffset,
@@ -568,12 +567,18 @@ _kernel_oserror *fsentry_file( int *R )
         ra.loadaddr = R[2];
         Xlt_CnvROtoDOS ( &ra, &da, CNV_DATETIME );
 #ifdef LONGNAMES
-        strncpy(DOSnamebuf + DOS_NAME_LEN, DOSnamebuf, DOS_NAME_LEN);
-        if (Xlt_AddROType(DOSnamebuf + DOS_NAME_LEN, ra.loadaddr)) {
-          err = SMB_Rename(DOSnamebuf, DOSnamebuf + DOS_NAME_LEN);
-          if (err != OK) break;
-          strcpy(DOSnamebuf, DOSnamebuf + DOS_NAME_LEN);
+      {
+        if (da.attr & ATTR_DIR)
+                ;
+        else {
+          strncpy(DOSnamebuf + DOS_NAME_LEN, DOSnamebuf, DOS_NAME_LEN);
+          if (Xlt_AddROType(DOSnamebuf + DOS_NAME_LEN, ra.loadaddr)) {
+            err = SMB_Rename(DOSnamebuf, DOSnamebuf + DOS_NAME_LEN);
+            if (err != OK) break;
+            strcpy(DOSnamebuf, DOSnamebuf + DOS_NAME_LEN);
+          }
         }
+      }
 #endif
       }
       else if ( R[0] == FSEntry_File_Reason_WriteExecutionAddress )
@@ -597,11 +602,19 @@ _kernel_oserror *fsentry_file( int *R )
       ra.flags = R[5];
 
 #ifdef LONGNAMES
-      strncpy(DOSnamebuf + DOS_NAME_LEN, DOSnamebuf, DOS_NAME_LEN);
-      if (Xlt_AddROType(DOSnamebuf + DOS_NAME_LEN, ra.loadaddr)) {
-        err = SMB_Rename(DOSnamebuf, DOSnamebuf + DOS_NAME_LEN);
-        if (err != OK) break;
-        strcpy(DOSnamebuf, DOSnamebuf + DOS_NAME_LEN);
+      {
+        RISCOS_ATTRIBS test_ra;
+        err = FileGetAttribs ( DOSnamebuf, &da, &test_ra );
+        if (err == OK && (da.attr & ATTR_DIR))
+                ;
+        else {
+          strncpy(DOSnamebuf + DOS_NAME_LEN, DOSnamebuf, DOS_NAME_LEN);
+          if (Xlt_AddROType(DOSnamebuf + DOS_NAME_LEN, ra.loadaddr)) {
+            err = SMB_Rename(DOSnamebuf, DOSnamebuf + DOS_NAME_LEN);
+            if (err != OK) break;
+            strcpy(DOSnamebuf, DOSnamebuf + DOS_NAME_LEN);
+          }
+        }
       }
 #endif
 

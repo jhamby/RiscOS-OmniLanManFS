@@ -81,7 +81,7 @@ ROM_OBJS  = or.LanMan or.Omni or.Logon or.CoreFn or.Printers \
 
 DBG_OBJS  = od.LanMan o.Omni od.Logon od.CoreFn od.Printers \
             od.Xlate od.buflib Interface.o RMInfo.o Errors.o od.Transact \
-            o.LLC o.NetBIOS o.SMB o.Attr od.RPC o.NBIP od.Stats LanMan_MH.o 
+            o.LLC o.NetBIOS od.SMB o.Attr od.RPC o.NBIP od.Stats LanMan_MH.o 
 
 OBJSI     = i.LanMan i.Omni i.Logon i.CoreFn i.Printers \
             i.Xlate i.buflib i.Transact \

@@ -151,8 +151,10 @@ typedef struct
 
 /* Maximum number of word params - 14 is used by Transact */
 #ifdef LONGNAMES
-/* Transact2 (LONGNAMES build only) requires 14 plus setup words */
-#define MAX_WCT (14+(MAX_SETUPWORDS)+1)
+/* Transact2 (LONGNAMES build only) requires 14 plus setup words
+ * The NT LM 0.12 negprot response requires 17.
+ */
+#define MAX_WCT (17+(MAX_SETUPWORDS)+1)
 #else
 #define MAX_WCT 14
 #endif
@@ -247,6 +249,7 @@ typedef struct
 #define PROT_WRITERAW    8
 #define PROT_RWMULTI     16
 #define PROT_SETDATETIME 32
+#define PROT_HAVE_GUID   64
 
 #define SMB_CASELESS   8
 
@@ -254,6 +257,12 @@ typedef struct
 #define SMB_KNOWS_LONG_NAMES	(1)
 #define SMB_IS_LONG_NAME	(0x40)
 #define SMB_UNICODE		(0x8000)
+
+#define T2FLAGS_LONGNAMES	(1)
+#define T2FLAGS_SWAPDATETIME	(2)
+#define T2FLAGS_TESTEDSWAP	(4)
+
+#define CAP_EXTENDED_SECURITY	(0x80000000)
 #endif
 
 /* Private structures */
@@ -279,6 +288,10 @@ struct ActiveServer
 #ifdef LONGNAMES
   int      SMB_flg2;   /* Flags to pass in SMB_flg2 field */
 #endif
+  int      prot;       /* which protocol was nogitated */
+  char     guid[16];   /* GUID returned from NT negprot commands */
+  int      bloblen;
+  BYTE     *blob;
   char     servname[NAME_LIMIT]; /* upper case */
   char     username[NAME_LIMIT]; /* case preserved */
 };
@@ -294,10 +307,11 @@ struct ActiveShare
   int     sharetype;
 
   int     Tid;          /* Tree ID */
+  int     Uid;          /* User ID */
   int     Datasize;
   int     FH_base;    /* Base number for file handles */
 #ifdef LONGNAMES
-  int     use_t2;
+  int     t2flags;
 #endif
   char    drvletter;  /* Letter for identifying 'drive' */
   char    sharename[SHARENAME_LEN];  /* upper case */
@@ -415,6 +429,37 @@ static BUFCHAIN MkDataBlock ( BUFCHAIN pB, int type,
 
 /* --------------------- */
 
+/* This routine takes an ASCII string and encodes it into Unicode by
+ * inserting extra zero bytes between each character and at the end
+ * It adds the resulting string to the given BUFCHAIN.  It optimises
+ * for strings up to AUSTC_SKIP chars long.
+ */
+#if 0
+static BUFCHAIN AddUnicodeStringToChain ( BUFCHAIN pB, char *str )
+{
+#define AUSTC_SKIP 18
+        int len = strlen(str)+1, skiplen, cp;
+        char ucbuf[AUSTC_SKIP*2];
+
+	skiplen = len % AUSTC_SKIP;
+	len -= skiplen;
+
+        do {
+                for (cp = skiplen - 1; cp>=0; --cp) {
+                        ucbuf[cp*2] = str[len + cp];
+                        ucbuf[cp*2+1] = '\0';
+                }
+                pB = AddChain(pB, ucbuf, skiplen * 2);
+                skiplen = AUSTC_SKIP;
+                len -= skiplen;
+        } while (pB && len >= 0);
+
+        return pB;
+}
+#endif
+
+/* --------------------- */
+
 static BUFCHAIN MkDataString ( BUFCHAIN pB, int type, char *ptr )
 {
   BYTE   hdrblk[4];
@@ -463,6 +508,90 @@ static void DumpBuffer(void *ptr, int len)
 #define DumpBuffer(ptr, len) ((void)0)
 #endif
 
+#ifdef DEBUG
+static BUFCHAIN DumpChain(BUFCHAIN pB)
+{
+        static char membuf[32768];
+        int len = ChainLen(pB);
+
+        GetData ( pB, membuf, len);
+        FreeChain(pB);
+        pB = AddChain ( NULL, membuf, len);
+        if (pB == NULL)
+                return NULL;
+        DumpBuffer(membuf, len);
+        return pB;
+}
+#else
+#define DumpChain(pB) (pB)
+#endif
+
+#ifdef DEBUG
+typedef struct {
+        const char *name;
+        int size;
+} DumpVarStr;
+#define DVS_MK(name,type) {name, sizeof(type)}
+#define DVS_END {0,0}
+
+DumpVarStr dvs_NTnegprot[] = {
+	DVS_MK("dialect", WORD),
+	DVS_MK("securitymode", BYTE),
+	DVS_MK("maxmpx", WORD),
+	DVS_MK("maxvcs", WORD),
+	DVS_MK("maxbuffersize", DWORD),
+	DVS_MK("maxrawsize", DWORD),
+	DVS_MK("sessionkey", DWORD),
+	DVS_MK("capabilities", DWORD),
+	DVS_MK("systimelo", DWORD),
+	DVS_MK("systimehi", DWORD),
+	DVS_MK("servertimezone", WORD),
+	DVS_MK("securitybloblen", BYTE),
+	DVS_END
+};
+
+DumpVarStr dvs_negprot[] = {
+	DVS_MK("dialect", WORD),
+	DVS_MK("securitymode", WORD),
+	DVS_MK("maxbuffersize", DWORD),
+	DVS_MK("maxmpx", WORD),
+	DVS_MK("maxvcs", WORD),
+	DVS_MK("rawmode", WORD),
+	DVS_MK("sessionkey", DWORD),
+	DVS_MK("systime", WORD),
+	DVS_MK("sysdate", WORD),
+	DVS_MK("challengelen", WORD),
+	DVS_MK("reserved (MBZ)", WORD),
+	DVS_END
+};
+
+static void *DumpVar(void *ptr, const char *name, unsigned long sz)
+{
+        static const char *sizestr[] = { "<NULL>", "UCHAR", "USHORT", "????", "ULONG" };
+	BYTE *bptr = ptr;
+	unsigned long value = 0;
+	unsigned long s;
+
+	for (s=0; s<sz; ++s) {
+	        value |= ((unsigned long)(*bptr++) << (s<<3UL));
+	}
+	printf("%6s %s: %#lx (%ld)\n", sizestr[sz], name, value, value);
+	return bptr;
+
+}
+
+static void DumpStruct(void *ptr, const DumpVarStr *dvs)
+{
+        while (dvs->size) {
+                ptr = DumpVar(ptr, dvs->name, dvs->size);
+                ++dvs;
+        }
+}
+#else
+#define DumpVar(ptr, name, sz) ((void *)(((char *)ptr)+sz))
+#define DumpStruct(ptr, str) ((void)0)
+#endif
+
 /* Does one SMB command (send & reply).
 
    hS is the connection handle to do it on (MUST BE VALIDATED!)
@@ -484,6 +613,83 @@ static void DumpBuffer(void *ptr, int len)
 //#define PINGFIRST
 #endif
 
+/* sbrodie (15 Jan 1999)
+ *
+ * This function has been split into two parts so that SMB_Transact2 can share the
+ * packet response code (now in Do_SMBResponse) with that used by Do_SMB.  SMB_Transact2
+ * can have multiple response packets if the data is very large.
+ */
+static err_t Do_SMBResponse(hSHARE hS, int cmd, BUFCHAIN *ppB_out )
+{
+  int wct_rx;
+  err_t res;
+  BUFCHAIN pB_rx;
+
+  /* Get reply */
+  res = NB_GetData ( hS->hServer->hSession, &pB_rx, REPLY_TIMEOUT );
+  if ( res != OK )
+    return res;
+
+  /* Extract received data */
+  debug2("Do_SMB (cmd=0x%x) - NB_GetData returned %d bytes\n", cmd, ChainLen(pB_rx));
+#ifdef DEBUG
+  if (cmd == SMBsesssetup) pB_rx = DumpChain(pB_rx);
+#endif
+
+  SMB_RxHdr.wct = 0;
+  SMB_RxByteCount = 0;
+  SMB_RxWordCount = 0;
+
+  pB_rx = GetData ( pB_rx, &SMB_RxHdr, SMBHDR_SIZE );
+  wct_rx = SMB_RxHdr.wct;
+
+/* sbrodie: moved this from just above "OK - all was well" comment */
+  /* Process errors back from server */
+  if ( SMB_RxHdr.errclass != 0 )
+  {
+    debug1("Do_SMB: errclass was %d\n", SMB_RxHdr.errclass);
+    FreeChain(pB_rx);
+#ifdef RETRYONERROR
+    if (SMB_RxHdr.errclass == ERRSRV && SMB_RxHdr.errlo == 1 && SMB_RxHdr.errhi == 0 && retry) {
+      --retry;
+      goto do_smb_retry;
+    }
+#endif
+    return Err_Translate ( SMB_RxHdr.errclass,
+        SMB_RxHdr.errlo + (SMB_RxHdr.errhi << 8) );
+  }
+
+  if ( wct_rx > MAX_WCT )  /* Dispose of extra word results */
+  {
+    pB_rx = GetData ( pB_rx, SMB_RxWords, MAX_WCT*2 );
+    pB_rx = GetData ( pB_rx, NULL, (wct_rx-MAX_WCT)*2 );
+  }
+  else if ( wct_rx > 0 )
+  {
+    pB_rx = GetData ( pB_rx, SMB_RxWords, wct_rx*2 );
+  }
+
+  pB_rx = GetData(pB_rx, &SMB_RxByteCount, 2); /* Get byte count */
+
+  if ( pB_rx == NULL ) /* It's all gone horribly wrong! */
+    return EDATALEN;
+
+  /* OK - all was well */
+#ifdef DEBUG
+  if (cmd == SMBnegprot) debug2("Protocol negotiation returned %d words and %d bytes\n",
+          wct_rx, SMB_RxByteCount);
+#endif
+
+  SMB_RxWordCount = wct_rx;
+
+  if ( ppB_out != NULL )
+    *ppB_out = pB_rx;     /* Hand over ownership */
+  else
+    FreeChain(pB_rx);
+  return OK;
+}
+
+
 static err_t Do_SMB ( hSHARE hS, int cmd, int wct_in, BUFCHAIN pB_in,
                       BUFCHAIN *ppB_out )
 {
@@ -494,11 +700,10 @@ static err_t Do_SMB ( hSHARE hS, int cmd, int wct_in, BUFCHAIN pB_in,
 #endif
 #ifdef PINGFIRST
   BUFCHAIN ping_in;
+  BUFCHAIN pB_rx;
   static SMBHDR ping_hdr;
 #endif
   err_t res;
-  int  wct_rx;
-  BUFCHAIN pB_rx;
   hSESSION hSess;
 
   if ( ppB_out != NULL ) /* If early exit, leave NULL in result */
@@ -533,19 +738,6 @@ static err_t Do_SMB ( hSHARE hS, int cmd, int wct_in, BUFCHAIN pB_in,
   pB_in = AddChain ( pB_in, &SMB_TxHdr, SMBHDR_SIZE );
   if ( pB_in == NULL )
     return EOUTOFMEM;
-
-#ifdef DEBUG
-if (cmd == SMBtrans2 && SMB_TxWords[14] == 2) {
-        static char membuf[4192];
-        int len = ChainLen(pB_in);
-
-        GetData ( pB_in, membuf, len);
-        pB_in = AddChain ( NULL, membuf, len);
-        if (pB_in == NULL)
-                return EOUTOFMEM;
-        DumpBuffer(membuf, len);
-}
-#endif
 
 #ifdef RETRYONERROR
   len = ChainLen(pB_in);
@@ -589,62 +781,9 @@ do_smb_retry:
   if ( res != OK )
     return res;
 
-  /* Get reply */
-  res = NB_GetData ( hSess, &pB_rx, REPLY_TIMEOUT );
-  if ( res != OK )
-    return res;
-
-  /* Extract received data */
-  debug2("Do_SMB (cmd=0x%x) - NB_GetData returned %d bytes\n", cmd, ChainLen(pB_rx));
-
-  SMB_RxHdr.wct = 0;
-  SMB_RxByteCount = 0;
-  SMB_RxWordCount = 0;
-
-  pB_rx = GetData ( pB_rx, &SMB_RxHdr, SMBHDR_SIZE );
-  wct_rx = SMB_RxHdr.wct;
-
-/* sbrodie: moved this from just above "OK - all was well" comment */
-  /* Process errors back from server */
-  if ( SMB_RxHdr.errclass != 0 )
-  {
-    debug1("Do_SMB: errclass was %d\n", SMB_RxHdr.errclass);
-    FreeChain(pB_rx);
-#ifdef RETRYONERROR
-    if (SMB_RxHdr.errclass == ERRSRV && SMB_RxHdr.errlo == 1 && SMB_RxHdr.errhi == 0 && retry) {
-      --retry;
-      goto do_smb_retry;
-    }
-#endif
-    return Err_Translate ( SMB_RxHdr.errclass,
-        SMB_RxHdr.errlo + (SMB_RxHdr.errhi << 8) );
-  }
-
-  if ( wct_rx > MAX_WCT )  /* Dispose of extra word results */
-  {
-    pB_rx = GetData ( pB_rx, SMB_RxWords, MAX_WCT*2 );
-    pB_rx = GetData ( pB_rx, NULL, (wct_rx-MAX_WCT)*2 );
-  }
-  else if ( wct_rx > 0 )
-  {
-    pB_rx = GetData ( pB_rx, SMB_RxWords, wct_rx*2 );
-  }
-
-  pB_rx = GetData(pB_rx, &SMB_RxByteCount, 2); /* Get byte count */
-
-  if ( pB_rx == NULL ) /* It's all gone horribly wrong! */
-    return EDATALEN;
-
-  /* OK - all was well */
-
-  SMB_RxWordCount = wct_rx;
-
-  if ( ppB_out != NULL )
-    *ppB_out = pB_rx;     /* Hand over ownership */
-  else
-    FreeChain(pB_rx);
-  return OK;
+  return Do_SMBResponse(hS, cmd, ppB_out);
 }
+
 
 /* ---------------------------- */
 
@@ -743,7 +882,8 @@ static err_t SMB_WriteRaw ( hSHARE hS, int fid, int offset,
 }
 
 /* sbrodie: Abstract the dialect strings here - means debug version can
- * can this function to find out which protocol was accepted.
+ * call this function to find out which protocol was accepted.  The
+ * offsets within the array of each string are vital to SMB_Negotiate.
  */
 static char *dialects[] = {
                 "PC NETWORK PROGRAM 1.0",
@@ -752,6 +892,9 @@ static char *dialects[] = {
                 "NT LM 0.12"
 };
 #define MAX_DIALECT ((sizeof(dialects)/sizeof(*dialects))-1)
+#define DIALECT_BASIC 0
+#define DIALECT_LM12X002 1
+#define DIALECT_NT 3
 static char *SMB_Dialect(unsigned int num)
 {
         if (num <= MAX_DIALECT) return dialects[num];
@@ -764,7 +907,6 @@ static err_t SMB_Negotiate( hSHARE hS )
 {
   err_t res;
   unsigned int dcount;
-
   BUFCHAIN pB;
 
   pB = NULL;
@@ -778,35 +920,81 @@ static err_t SMB_Negotiate( hSHARE hS )
   if ( pB == NULL )
     return EOUTOFMEM;
 
-  res = Do_SMB ( hS, SMBnegprot, 0, pB, NULL );
+  res = Do_SMB ( hS, SMBnegprot, 0, pB, &pB );
   if ( res != OK )
     return res;
 
-  debug1("Negotiated protocol `%s'\n", SMB_Dialect(SMB_RxWords[0]));
-  if ( SMB_RxWords[0] >= 1 )
+  #ifdef DEBUG
+  debug1("Data length on negprot is %d\n", ChainLen(pB));
   {
-    hS->hServer->ProtFlags = PROT_RWMULTI + PROT_SETDATETIME +
-       (SMB_RxWords[1] & 1 ? PROT_USERLOGON : 0 ) +
-       (SMB_RxWords[1] & 2 ? PROT_ENCRYPT : 0 ) +
-       (SMB_RxWords[5] & 1 ? PROT_READRAW : 0 ) +
-       (SMB_RxWords[5] & 2 ? PROT_WRITERAW : 0 );
+          static char buf[4096];
+          void *ptr = SMB_RxWords;
+          int len = ChainLen(pB);
+          GetData(pB, buf, len);
+          DumpBuffer(buf, len);
+          DumpStruct(ptr, (SMB_RxWords[0] >= DIALECT_NT) ? dvs_NTnegprot : dvs_negprot);
+  }
+  #endif
+  FreeChain(pB);
+
+  debug1("Negotiated protocol `%s'\n", SMB_Dialect(SMB_RxWords[0]));
+  hS->hServer->prot = SMB_RxWords[0];
+  if ( SMB_RxWords[0] >= DIALECT_LM12X002 )
+  {
+    if (SMB_RxWords[0] >= DIALECT_NT) {
+      /* grr - different response format */
+      hS->hServer->ProtFlags = PROT_RWMULTI + PROT_SETDATETIME +
+         (SMB_RxWords[9] & 0x100 ? PROT_READRAW+PROT_WRITERAW : 0 ) +
+         (SMB_RxWords[1] & 1 ? PROT_USERLOGON : 0 ) +
+         (SMB_RxWords[1] & 2 ? PROT_ENCRYPT : 0 );
+      if (SMB_RxWords[10] & 0x80) {
+        /* CAP_EXTENDED_SECURITY */
+        hS->hServer->ProtFlags |= PROT_HAVE_GUID;
+        GetData(pB, hS->hServer->guid, 16);
+        debug0("Found a GUID block in the data section\n");
+      }
+      else {
+        /* No bit */
+        debug0("No extended security - no GUID in the data block\n");
+      }
+      hS->hServer->bloblen = SMB_RxWords[16] >> 8;
+    }
+    else {
+      hS->hServer->bloblen = SMB_RxWords[11];
+      hS->hServer->ProtFlags = PROT_RWMULTI + PROT_SETDATETIME +
+         (SMB_RxWords[1] & 1 ? PROT_USERLOGON : 0 ) +
+         (SMB_RxWords[1] & 2 ? PROT_ENCRYPT : 0 ) +
+         (SMB_RxWords[5] & 1 ? PROT_READRAW : 0 ) +
+         (SMB_RxWords[5] & 2 ? PROT_WRITERAW : 0 );
+    }
     hS->hServer->SMB_flg = SMB_CASELESS;
 #ifdef LONGNAMES
     debug0("Enabling long filenames on this share\n");
     hS->hServer->SMB_flg2 = SMB_KNOWS_LONG_NAMES; /* | SMB_IS_LONG_NAME;*/
-    hS->use_t2 = 1;
+    hS->t2flags = T2FLAGS_LONGNAMES;
 #endif
     hS->hServer->Sesskey = SMB_RxWords[6] | (SMB_RxWords[7] << 16);
+    if (hS->hServer->bloblen > 0) {
+      free(hS->hServer->blob);
+      hS->hServer->blob = malloc(hS->hServer->bloblen);
+      if (hS->hServer->blob != NULL) {
+        GetData(pB, hS->hServer->blob, hS->hServer->bloblen);
+      }
+    }
+    else {
+      hS->hServer->blob = 0;
+    }
   }
   else
   {
     hS->hServer->ProtFlags = PROT_SETDATETIME;
     hS->hServer->SMB_flg = 0;
 #ifdef LONGNAMES
-    hS->use_t2 = 0;
+    hS->t2flags = 0;
     hS->hServer->SMB_flg2 = 0;
 #endif
   }
+  debug1("%s-level security\n", hS->hServer->ProtFlags & PROT_USERLOGON ? "User" : "Share");
   return OK;
 }
 
@@ -819,11 +1007,6 @@ static err_t SMB_SessSetup ( hSHARE hS, char *userid, char *passwd )
   BUFCHAIN pB;
   err_t res;
 
-  pB = AddChain ( NULL, userid, strlen(userid)+1 );
-  if ( pB != NULL ) pB = AddChain ( pB, passwd, strlen(passwd)+1 );
-  if ( pB == NULL )
-    return EOUTOFMEM;
-
   SMB_TxWords[0] = 0x00FF; /* No additional command */
   SMB_TxWords[1] = 0;      /* Offset to next cmd */
   SMB_TxWords[2] = 4096;   /* Our buffer size */
@@ -831,11 +1014,45 @@ static err_t SMB_SessSetup ( hSHARE hS, char *userid, char *passwd )
   SMB_TxWords[4] = 0;      /* First & only VC */
   SMB_TxWords[5] = hS->hServer->Sesskey & 0xFFFF;
   SMB_TxWords[6] = hS->hServer->Sesskey >> 16;
-  SMB_TxWords[7] = strlen ( passwd ) + 1;
-  SMB_TxWords[8] = 0;
-  SMB_TxWords[9] = 0;
 
-  res = Do_SMB ( hS, SMBsesssetup, 10, pB, NULL );
+  if (hS->hServer->prot < DIALECT_NT) {
+    pB = AddChain ( NULL, userid, strlen(userid)+1 );
+    if ( pB != NULL ) pB = AddChain ( pB, passwd, strlen(passwd)+1 );
+    if ( pB == NULL )
+      return EOUTOFMEM;
+
+    SMB_TxWords[7] = strlen ( passwd ) + 1;
+    SMB_TxWords[8] = 0;
+    SMB_TxWords[9] = 0;
+
+    res = Do_SMB ( hS, SMBsesssetup, 10, pB, NULL );
+  }
+  else if (hS->hServer->ProtFlags & PROT_HAVE_GUID) {
+    /* CAP_EXTENDED_SECURITY is supported by the server - setup session accordingly */
+    SMB_TxWords[7] = hS->hServer->bloblen;
+    SMB_TxWords[8] = SMB_TxWords[9] = 0; /* reserved */
+    SMB_TxWords[10] = SMB_TxWords[11] = 0; /* client capabilities */
+    pB = AddChain ( NULL, hS->hServer->blob, hS->hServer->bloblen );
+    if (pB == NULL )
+      return EOUTOFMEM;
+    res = Do_SMB ( hS, SMBsesssetup, 12, pB, NULL );
+  }
+  else {
+    /* Server does not support extended security */
+    SMB_TxWords[7] = strlen ( passwd );
+    SMB_TxWords[8] = 0;
+    SMB_TxWords[9] = SMB_TxWords[10] = 0; /* Reserved */
+    SMB_TxWords[11] = SMB_TxWords[12] = 0; /* client capabilities */
+    pB = AddChain(pB, "CIFS", sizeof("CIFS"));
+    if (pB) pB = AddChain(pB, "\0RISCOS", sizeof("\0RISCOS"));
+    if (pB) pB = AddChain(pB, userid, strlen(userid) + 1);
+    if (pB) pB = AddChain(pB, passwd, strlen(passwd));
+    if (pB) pB = DumpChain(pB);
+// FreeChain(pB); return EOUTOFMEM;
+    if (pB == NULL)
+      return EOUTOFMEM;
+    res = Do_SMB ( hS, SMBsesssetup, 13, pB, NULL );
+  }
   if ( res != OK )
     return res;
 
@@ -1052,6 +1269,7 @@ static hSERVER AllocServer ( void )
     {
       hS->flags = ALLOCATED;
       hS->hSession = 0;
+      hS->blob = 0;
       return hS;
     }
 
@@ -1073,7 +1291,7 @@ static hSHARE AllocShare ( void )
       hS->Tid=0;
       hS->Datasize=0;
 #ifdef LONGNAMES
-      hS->use_t2 = 0;
+      hS->t2flags = 0;
 #endif
       return hS;
     }
@@ -1138,6 +1356,10 @@ static hSHARE FindShare ( hSERVER hServ, char *share_name )
 
 static void FreeServer ( hSERVER hS )
 {
+  if (hS->flags != FREE) {
+    free(hS->blob);
+    hS->blob = NULL;
+  }
   hS->flags = FREE;
 }
 
@@ -1218,7 +1440,7 @@ bool SMB_IsLongNameFS( const char * path)
   hSHARE hS;
 
   hS = GetShare(path, &e);
-  if (e == OK && hS->use_t2) return true;
+  if (e == OK && (hS->t2flags & T2FLAGS_LONGNAMES)) return true;
   return false;
 }
 
@@ -1587,7 +1809,7 @@ err_t SMB_Rename ( char *oldpath, char *newpath )
 
 #ifdef LONGNAMES
 
-/* Microsoft servers not sending them in the documented order */
+/* Some Microsoft servers not sending them in the documented order */
 static void swap_time_date(BYTE *p)
 {
         BYTE swp;
@@ -1606,6 +1828,64 @@ static err_t SMB_GetAttribsX2 (hSHARE hS, char *filename, DOS_ATTRIBS *pAttr )
   err_t res;
   static struct TransactParms tp;
 
+  if (!(hS->t2flags & T2FLAGS_TESTEDSWAP)) {
+    /* Need to test whether we have to swap the date/time fields */
+    char fnbuffer[8];
+    DOS_ATTRIBS aattrbuf;
+    hS->t2flags |= T2FLAGS_TESTEDSWAP;
+    fnbuffer[0] = *filename;
+    fnbuffer[1] = ':';
+    fnbuffer[2] = '\\';
+    fnbuffer[3] = '\0';
+    debug1("Looking up `%s' to test buffer format\n", fnbuffer);
+    if (SMB_GetAttribsX2 ( hS, fnbuffer, &aattrbuf ) == OK) {
+      fnbuffer[3] = '\0';
+      fnbuffer[4] = '\0';
+      Transact_init(&tp, 6 * 2);           /* will accept 6 WORD return params */
+      Transact_addsetupword(&tp, TRANSACT2_FINDFIRST);
+      Transact_addword(&tp, ATTR_DIR);     /* findfirst_Attribute */
+      Transact_addword(&tp, 1);            /* findfirst_SearchCount */
+      Transact_addword(&tp, 0);            /* findfirst_flags */
+      Transact_addword(&tp, 1);            /* Search level  */
+      Transact_addlong(&tp, 0L);           /* reserved, MBZ */
+      Transact_addstring(&tp, fnbuffer+2); /* findfirst_FileName[] */
+      debug1("Looking for `%s'\n", fnbuffer+2);
+      res = SMB_Transact2(hS, &tp);
+      if (res == OK) {
+        debug0("SMB_Transact2 worked\n");
+        SMB_TxWords[0] = Transact_getword(tp.parms_out_buf);
+        if (Transact_getword(tp.parms_out_buf + 2) == 1) {
+          DOS_ATTRIBS sattrbuf;
+          debug1("Filename was `%s'\n", tp.data_out_buf + 23);
+          res = Xlt_ExpandSearchEntryX2 ( tp.data_out_buf, NULL, NULL, &sattrbuf, NULL);
+          if (res == OK) {
+            if (sattrbuf.utime != aattrbuf.utime) {
+               debug0("Need to swap date/time!\n");
+               hS->t2flags |= T2FLAGS_SWAPDATETIME;
+               swap_time_date(tp.data_out_buf);
+               swap_time_date(tp.data_out_buf+4);
+               swap_time_date(tp.data_out_buf+8);
+               Xlt_ExpandSearchEntryX2 ( tp.data_out_buf, NULL, NULL, &sattrbuf, NULL);
+               if (sattrbuf.utime != aattrbuf.utime) {
+                 debug0("Didnt get the right thing anyway\n");
+               }
+               else {
+                 debug0("Tested and verified!\n");
+               }
+            }
+            else {
+               debug0("Don't need to swap date/time!\n");
+            }
+          }
+        }
+      	(void) Do_SMB(hS, SMBfindclose2, 1, NULL, NULL);
+      }
+      else {
+        debug0("SMB_Transact2 failed\n");
+      }
+    }
+  }
+
   Transact_init(&tp, 1 * 2);
   Transact_addsetupword(&tp, TRANSACT2_QUERYPATHINFORMATION);
   Transact_addword(&tp, 1);  /* information level */
@@ -1617,11 +1897,14 @@ static err_t SMB_GetAttribsX2 (hSHARE hS, char *filename, DOS_ATTRIBS *pAttr )
   /*
    * OK.  Who decided that this call should return data in a different
    * format than the FindFirst/FindNext calls.  Need to reverse the times
-   * and dates of the file before calling Xlt to expand them ...
+   * and dates of the file before calling Xlt to expand them ... but only
+   * if the remote server has this bug.
    */
-  swap_time_date(tp.data_out_buf);
-  swap_time_date(tp.data_out_buf+4);
-  swap_time_date(tp.data_out_buf+8);
+  if (hS->t2flags & T2FLAGS_SWAPDATETIME) {
+    swap_time_date(tp.data_out_buf);
+    swap_time_date(tp.data_out_buf+4);
+    swap_time_date(tp.data_out_buf+8);
+  }
   /* end workaround */
   strcpy((char *)tp.data_out_buf+23, filename); /* Xlt_ExpandSearchEntryX2 relies on this */
   return Xlt_ExpandSearchEntryX2 ( tp.data_out_buf, NULL, NULL, pAttr, NULL);
@@ -1674,7 +1957,7 @@ err_t SMB_GetAttribs ( char *filename, DOS_ATTRIBS *pAttr )
     return res;
 
 #ifdef LONGNAMES
-  if (hS->use_t2)
+  if (hS->t2flags & T2FLAGS_LONGNAMES)
     return SMB_GetAttribsX2 (hS, filename, pAttr );
 #endif
 
@@ -2015,7 +2298,7 @@ err_t SMB_ReadDirEntries ( char *path, int count,
   }
 
 #ifdef LONGNAMES
-  if (SearchDrive->use_t2)
+  if (SearchDrive->t2flags & T2FLAGS_LONGNAMES)
   {
      return SMB_ReadDirEntriesX2(SearchDrive, path, count, dirfn, private);
   }
@@ -2579,13 +2862,15 @@ static err_t SMB_Transact2 ( hSHARE hS, struct TransactParms *pT )
 {
   BUFCHAIN pB, pBres;
   err_t res;
-  int   a = SMBHDR_SIZE + ((14 + pT->setup_in_len)*2) + 2;
+  int iter = 0; /* Response iteration number */
+  int a = SMBHDR_SIZE + ((14 + pT->setup_in_len)*2) + 2;
   int pda = ((a + 3) & ~3);
       /* SMB header size, 14 params + setup words + 2 byte data length
        */
   int   padbytes;    /* Temp variable */
   int   sc;
   int   retry = 3;
+  int   tot_data_rcvd = 0, tot_param_rcvd = 0;
 
 retry_transact2:
   debug2("SMB_Transact2: processing (Tid = %#04x, sub-cmd=%#04x)...\n", hS->Tid,
@@ -2650,64 +2935,75 @@ retry_transact2:
     return res;
   }
 
-  /* Now extract results */
+  /* Now extract results - note that there may be 1 of these.  OTOH, there may be several
+   * if the data didn't fit into the negotiated buffer sizes ... */
+  for (iter = 0; ; ++iter) {
 
-  if ( SMB_RxWordCount < 10 )
-  {
-    debug1("SMB_Transact2: SMB_RxWordCount was %d\n", SMB_RxWordCount);
+    if ( SMB_RxWordCount < 10 )
+    {
+      FreeChain(pBres);
+      return EDATALEN;
+    }
+
+    a = SMBHDR_SIZE + (SMB_RxWordCount)*2 + 2;
+    /* Size of SMBHDR plus returned rx words plus byte count
+       = offset of data in pBres from start of header */
+
+    if (iter == 0) {
+      /* First response will tell us how much is coming */
+      pT->parms_out_len = min(SMB_RxWords[0], pT->parms_out_maxlen);
+                              /* Parm bytes being returned */
+      pT->data_out_len  = min(SMB_RxWords[1], pT->data_out_maxlen);
+                              /* Data bytes being returned */
+      pT->setup_out_len = min(SMB_RxWords[9] & 0xFF, pT->setup_out_maxlen);
+
+      /* setup words must come in the first packet */
+      if (pT->setup_out_len > 0 )          /* Get setup_out */
+      {
+        memcpy(pT->setup_out, &SMB_RxWords[14], 2 * pT->setup_out_len);
+      }
+    }
+
+    if ( pT->parms_out_len > 0 && SMB_RxWords[3])         /* Get parms_out */
+    {
+      padbytes = SMB_RxWords[4] - a;     /* RxWords[4] is offset;
+                                            Get number of pad bytes */
+
+      if ( padbytes > 0 )
+        pBres = GetData(pBres, NULL, padbytes);
+      pBres = GetData(pBres, pT->parms_out_buf + SMB_RxWords[5], SMB_RxWords[3]);
+      a += padbytes + pT->parms_out_len; /* New offset value */
+      tot_param_rcvd += SMB_RxWords[3];
+    }
+
+    if ( pT->data_out_len > 0 && SMB_RxWords[6] > 0)        /* Get data_out */
+    {
+      padbytes = SMB_RxWords[7] - a;     /* Number of pad bytes */
+      if ( padbytes > 0 )
+        pBres = GetData(pBres, NULL, padbytes);
+      pBres = GetData(pBres, pT->data_out_buf + SMB_RxWords[8], SMB_RxWords[6]);
+      tot_data_rcvd += SMB_RxWords[6];
+      if (pT->setup_in[0] == TRANSACT2_QUERYPATHINFORMATION)
+        DumpBuffer(pT->data_out_buf, pT->data_out_len);
+    }
+
+    if ( pBres == NULL ) {  /* Oh no! Techo fear! */
+      debug0("SMB_Transact2: pBres was NULL\n");
+      return EDATALEN;
+    }
+
     FreeChain(pBres);
-    return EDATALEN;
+
+    if (tot_data_rcvd < pT->data_out_len || tot_param_rcvd < pT->parms_out_len) {
+      res = Do_SMBResponse(hS, SMBtrans2, &pBres);
+      if (res != OK)
+        return res;
+      /* Extract received data */
+      debug1("Transact2 (2ndary response) - returned %d bytes\n", ChainLen(pBres));
+    }
+    else break;
   }
 
-  a = SMBHDR_SIZE + (SMB_RxWordCount)*2 + 2;
-  /* Size of SMBHDR plus returned rx words plus byte count
-     = offset of data in pBres from start of header */
-
-#ifdef DEBUG
-  if (SMB_RxWords[1] != SMB_RxWords[6]) {
-    int i; for (i=0; i<20; ++i) debug0("***********************\n");
-    debug2("Total data: %d; this data %d\n", SMB_RxWords[1], SMB_RxWords[6]);
-  }
-#endif
-
-  pT->parms_out_len = min(SMB_RxWords[3], pT->parms_out_maxlen);
-                          /* Parm bytes being returned */
-  pT->data_out_len  = min(SMB_RxWords[6], pT->data_out_maxlen);
-                          /* Data bytes being returned */
-  pT->setup_out_len = min(SMB_RxWords[9] & 0xFF, pT->setup_out_maxlen);
-
-  if (pT->setup_out_len > 0 )          /* Get setup_out */
-  {
-    memcpy(pT->setup_out, &SMB_RxWords[14], 2 * pT->setup_out_len);
-  }
-
-  if ( pT->parms_out_len > 0 )         /* Get parms_out */
-  {
-    padbytes = SMB_RxWords[4] - a;     /* RxWords[4] is offset;
-                                          Get number of pad bytes */
-
-    if ( padbytes > 0 )
-      pBres = GetData(pBres, NULL, padbytes);
-    pBres = GetData(pBres, pT->parms_out_buf, pT->parms_out_len);
-    a += padbytes + pT->parms_out_len; /* New offset value */
-  }
-
-  if ( pT->data_out_len > 0 )        /* Get data_out */
-  {
-    padbytes = SMB_RxWords[7] - a;     /* Number of pad bytes */
-    if ( padbytes > 0 )
-      pBres = GetData(pBres, NULL, padbytes);
-    pBres = GetData(pBres, pT->data_out_buf, pT->data_out_len);
-    if (pT->setup_in[0] == TRANSACT2_QUERYPATHINFORMATION)
-      DumpBuffer(pT->data_out_buf, pT->data_out_len);
-  }
-
-  if ( pBres == NULL ) {  /* Oh no! Techo fear! */
-    debug0("SMB_Transact2: pBres was NULL\n");
-    return EDATALEN;
-  }
-
-  FreeChain(pBres);
   return OK;
 }
 #endif
