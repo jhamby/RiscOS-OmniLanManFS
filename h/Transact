@@ -35,6 +35,7 @@ union Transact_SearchContext {
     struct TransactParms tp;
     DWORD resume_key;
     WORD dir_handle;
+    bool dir_handle_valid;
     char last_filename[DOS_NAME_LEN];
   } t2;
 };

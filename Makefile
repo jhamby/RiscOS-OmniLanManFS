@@ -45,8 +45,7 @@ CD	= dir
 CPFLAGS = ~cfr~v
 WFLAGS  = ~c~v
 
-# sbrodie 5/1/99: Define LANMANFS to enable use of NFS headers
-DFLAGS    = -UTML -DCOMPAT_INET4 -DLANMANFS -DLONGNAMES
+DFLAGS    = -UTML -DCOMPAT_INET4 -DLONGNAMES
 AFLAGS    = -depend !Depend ${THROWBACK} -Stamp -quit
 CFLAGS    = -depend !Depend ${THROWBACK} -c -Wpcs -ff -zps1 -zM ${INCLUDES},. ${DFLAGS}
 CMHGFLAGS = -depend !Depend ${THROWBACK} -p
@@ -64,6 +63,7 @@ ABSSYM    = RISC_OSLib:o.AbsSym
 INETLIB   = TCPIPLibs:o.inetlibzm
 SOCKLIB   = TCPIPLibs:o.socklibzm
 UNIXLIB   = TCPIPLibs:o.unixlibzm
+DEBUGLIB  = C:DebugLib.o.DebugLibZM
 
 
 
@@ -79,9 +79,14 @@ ROM_OBJS  = or.LanMan or.Omni or.Logon or.CoreFn or.Printers or.NameCache \
 #            od.Xlate od.buflib  Interface.o RMInfo.o Errors.o o.Transact \
 #            od.LLC od.NetBIOS od.SMB od.Attr od.RPC od.NBIP od.Stats LanMan_MH.o 
 
-DBG_OBJS  = od.LanMan od.Omni od.Logon od.CoreFn od.Printers od.NameCache \
-            od.Xlate od.buflib Interface.o RMInfo.o Errors.o od.Transact \
-            o.LLC o.NetBIOS od.SMB o.Attr od.RPC od.NBIP od.Stats LanMan_MH.o 
+#DBG_OBJS  = od.LanMan od.Omni od.Logon od.CoreFn od.Printers od.NameCache \
+#            od.Xlate od.buflib Interface.o RMInfo.o Errors.o od.Transact \
+#            o.LLC o.NetBIOS od.SMB o.Attr od.RPC od.NBIP od.Stats LanMan_MH.o 
+
+DBG_OBJS  = od.LanMan o.Omni o.Logon o.CoreFn o.Printers o.NameCache \
+            o.Xlate o.buflib Interface.o RMInfo.o Errors.o o.Transact \
+            o.LLC o.NetBIOS od.SMB o.Attr o.RPC o.NBIP o.Stats LanMan_MH.o 
+
 
 OBJSI     = i.LanMan i.Omni i.Logon i.CoreFn i.Printers i.NameCache \
             i.Xlate i.buflib i.Transact \
@@ -101,7 +106,7 @@ LanMan_MH.h: LanMan_MH.o
 .SUFFIXES:  .o .od .or .s .c .i .h .cmhg .inst
 .c.o:;      ${CC} ${CFLAGS} -o $@ $<
 .c.or:;      ${CC} ${CFLAGS} -DROM -o $@ $<
-.c.od:;      ${CC} ${CFLAGS} -DDEBUG -DTRACE -Dprintf=module_printf -o $@ $<
+.c.od:;      ${CC} ${CFLAGS} -DDEBUG -DDEBUGLIB -DTRACE -Dprintf=module_printf -o $@ $<
 .c.i:;		$(CC) $(CFLAGS) -c -C -E $< >> $@
 .i.inst:;	$(CC) $(CFLAGS) -C++ -o $@ $<
 .cmhg.o:;   ${CMHG} ${CMHGFLAGS} -o $@ $< -d $*.h
@@ -169,7 +174,7 @@ ${RAM_MODULE}: ${OBJS} o.dirs
 
 ${DBG_MODULE}: ${DBG_OBJS} o.dirs
 	${MKDIR} rm
-	${LD} -o $@ -rmf ${DBG_OBJS} ${UNIXLIB} ${INETLIB} ${SOCKLIB} ${CLIB}
+	${LD} -o $@ -rmf ${DBG_OBJS} ${UNIXLIB} ${INETLIB} ${SOCKLIB} ${DEBUGLIB} ${CLIB}
 	${MODSQZ} $@
 
 #

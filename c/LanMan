@@ -946,32 +946,6 @@ static err_t ProcessCmdLine ( const char *_line )
 
 /* ------------------------------- */
 
-#if 0
-static void LM_StartupBoot ( void )
-{
-
-  /* Checks to see if we need to boot (by reading the CMOS RAM).
-     If so, it
-
-     i)   Gets the workgroup/domain name from CMOS RAM
-     ii)  Tries to find a DC for the given name. If so, it uses this
-           as the server name.
-     iii) Attempts to mount "ARMBOOT", with user ARMBOOT and no password.
-
-  */
-
-  if ( RdCMOS(CMOS_FSNUMBER) != Our_FS_Number )
-    return;
-
-  if ( (RdCMOS(CMOS_FSFLAGS) & FSF_BOOT) == 0 )
-    return;
-
-  #ifdef AUTOBOOT_ON_INIT
-  LM_Boot();
-  #endif
-}
-#endif
-
 void LM_Boot(void)
 {
   int tries=1;
@@ -1052,6 +1026,11 @@ _kernel_oserror *LM_Initialise(const char *cmd_tail, int pod_base, void *pw)
 {
   _kernel_oserror *err;
   _kernel_swi_regs R;
+
+  debug_initialise("LanManFS", "", "");
+  debug_atexit();
+  debug_set_options(0,0,0);
+  debug_output_device(DEBUGIT_OUTPUT);
 
   LM_Vars.initialised = LMInitState_Uninitialised;
 

@@ -478,30 +478,36 @@ static BUFCHAIN MkDataString ( BUFCHAIN pB, int type, char *ptr )
 #ifdef DEBUG
 static void DumpBuffer(void *ptr, int len)
 {
+        static char DumpBuf[256];
         const char *membuf = ptr;
+        char *db;
         int i,j;
+        db = DumpBuf;
+        *db = 0;
         for (i=0; i<((len+31)&~31); ++i) {
                 if (!(i & 31)) {
-                        printf("  ");
+                        db += sprintf(db, "  ");
                         if (i) for (j = i - 32; j != i; ++j) {
-                                printf("%c", (membuf[j]>=32 && membuf[j] != 0x7f) ?
+                                db += sprintf(db, "%c", (membuf[j]>=32 && membuf[j] != 0x7f) ?
                                 membuf[j] : '.');
                         }
-                        printf("\n%04x: ", i);
+                        dprintf(("BufferDump", "%s\n", DumpBuf));
+                        db = DumpBuf;
+                        db += sprintf(db, "%04x: ", i);
                 }
                 if (i>=len) {
-                        printf("  ");
-                        if ((i & 1)) printf(" ");
+                        db += sprintf(db, "  ");
+                        if ((i & 1)) db += sprintf(db, " ");
                 }
                 else {
-                        printf("%02x", membuf[i]);
-                        if ((i & 1)) printf(" ");
+                        db += sprintf(db, "%02x", membuf[i]);
+                        if ((i & 1)) db += sprintf(db, " ");
                 }
         }
-        if (i) for (printf("  "), j = i - 32; j != i; ++j) printf("%c",
+        if (i) for (db += sprintf(db, "  "), j = i - 32; j != i; ++j) db += sprintf(db, "%c",
             j>=len ? ' ' : (membuf[j]>=32 && membuf[j] != 0x7f) ?
             membuf[j] : '.');
-	printf("\n");
+	dprintf(("BufferDump", "%s\n", DumpBuf));
 }
 #else
 #define DumpBuffer(ptr, len) ((void)0)
@@ -574,7 +580,7 @@ static void *DumpVar(void *ptr, const char *name, unsigned long sz)
 	for (s=0; s<sz; ++s) {
 	        value |= ((unsigned long)(*bptr++) << (s<<3UL));
 	}
-	printf("%6s %s: %#lx (%ld)\n", sizestr[sz], name, value, value);
+	dprintf(("%6s %s: %#lx (%ld)\n", sizestr[sz], name, value, value));
 	return bptr;
 
 }
@@ -633,7 +639,7 @@ static err_t Do_SMBResponse(hSHARE hS, int cmd, BUFCHAIN *ppB_out )
   /* Extract received data */
   debug2("Do_SMB (cmd=0x%x) - NB_GetData returned %d bytes\n", cmd, ChainLen(pB_rx));
 #ifdef DEBUG
-  if (cmd == SMBsesssetup) pB_rx = DumpChain(pB_rx);
+  if (cmd == SMBwriteBraw) pB_rx = DumpChain(pB_rx);
 #endif
 
   SMB_RxHdr.wct = 0;
@@ -2153,9 +2159,14 @@ enum {
         fnext_CONTINUE = 8
 };
 
+#ifdef DEBUGLIB
+static int SIDS=0;
+#endif
+
 static err_t SMB_AbandonFind2( hSHARE hS, WORD dir_handle )
 {
-        debug1("Terminating search op (dir_handle = 0x%04x)\n", dir_handle);
+        dprintf(("SID", "Terminating search op (dir_handle = 0x%04x) (%d open)\n",
+        	dir_handle, --SIDS));
         SMB_TxWords[0] = dir_handle;
         return Do_SMB(hS, SMBfindclose2, 1, NULL, NULL);
 }
@@ -2181,7 +2192,10 @@ static err_t SMB_ReadDirEntriesX2 ( hSHARE hS, char *path, int count,
       */
      debug3("SMB_ReadDirEntriesX2 -> path (%p) NextSearchOK (%d) count (%d)\n",
        path, con->t1.NextSearchOK, count);
-     (void) SMB_AbandonFind2( hS, con->dir_handle );
+     if (con->dir_handle_valid) {
+       (void) SMB_AbandonFind2( hS, con->dir_handle );
+       con->dir_handle_valid = false;
+     }
   }
 
   con->t1. NextSearchOK = false;
@@ -2194,6 +2208,10 @@ static err_t SMB_ReadDirEntriesX2 ( hSHARE hS, char *path, int count,
     /* Initial search - note we accept SIX return parameters - contrary to
      * Microsoft's own document - because it doesn't work if you only pass 5. Grr.
      */
+    if (con->dir_handle_valid) {
+      SMB_AbandonFind2( hS, con->dir_handle);
+      con->dir_handle_valid = false;
+    }
     con->resume_key = 0;
     flags = first_flags;
     Transact_init(&con->tp, 6 * 2);           /* will accept 6 WORD return params */
@@ -2214,7 +2232,8 @@ static err_t SMB_ReadDirEntriesX2 ( hSHARE hS, char *path, int count,
       return res;
     p = con->tp.parms_out_buf;
     con->dir_handle = Transact_getword(p); p += 2;
-    debug1("SID = 0x%04hx\n", con->dir_handle);
+    con->dir_handle_valid = true;
+    dprintf(("SID", "SID = 0x%04hx (%d open)\n", con->dir_handle, ++SIDS));
   }
   else {
     /* continuation */
@@ -2279,6 +2298,7 @@ static err_t SMB_ReadDirEntriesX2 ( hSHARE hS, char *path, int count,
        debug0("Bugger.  Looks like client ran out of space (or could be name xlate code)\n");
        if (eos) {
          (void) SMB_AbandonFind2( hS, con->dir_handle );
+         con->dir_handle_valid = false;
        }
        else {
          int j;

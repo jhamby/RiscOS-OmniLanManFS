@@ -20,18 +20,12 @@
 *
 */
 
-#ifdef DEBUG
-#define debug0(f) printf (f)
-#define debug1(f,a) printf (f,a)
-#define debug2(f,a,b) printf (f,a,b)
-#define debug3(f,a,b,c) printf (f,a,b,c)
-#else
-#define debug0(f)
-#define debug1(f,a)
-#define debug2(f,a,b)
-#define debug3(f,a,b,c)
-#endif
+#include "DebugLib/DebugLib.h"
 
+#define debug0(f) dprintf((__FILE__, f))
+#define debug1(f,a) dprintf((__FILE__, f,a))
+#define debug2(f,a,b) dprintf((__FILE__, f,a,b))
+#define debug3(f,a,b,c) dprintf((__FILE__, f,a,b,c))
 
 /* For RISCOS */
 
