@@ -994,7 +994,7 @@ static err_t SMB_SessSetup ( hSHARE hS, char *userid, char *passwd )
     SMB_TxWords[8] = 0;
     SMB_TxWords[9] = SMB_TxWords[10] = 0; /* Reserved */
     SMB_TxWords[11] = SMB_TxWords[12] = 0; /* client capabilities */
-    pB = AddChain(pB, "CIFS", sizeof("CIFS"));
+    pB = AddChain(NULL, "CIFS", sizeof("CIFS"));
     if (pB) pB = AddChain(pB, "\0RISCOS", sizeof("\0RISCOS"));
     if (pB) pB = AddChain(pB, userid, strlen(userid) + 1);
     if (pB) pB = AddChain(pB, passwd, strlen(passwd));
