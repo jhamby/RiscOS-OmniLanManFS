@@ -316,7 +316,7 @@ static int GetArgs ( const char *args, char *argv_out[], int maxargs )
 
 /* --------------------- */
 
-static _kernel_oserror *Cmd_LANMAN ( const char *args )
+static _kernel_oserror *Cmd_LanMan ( const char *args )
 {
   /* No args! */
   _kernel_swi_regs r;
@@ -345,7 +345,7 @@ static char *(LM_local_num)(char *buf)
 }
 #endif
 
-static _kernel_oserror *Cmd_FREE ( const char *args )
+static _kernel_oserror *Cmd_Free ( const char *args )
 {
   _kernel_swi_regs r;
   _kernel_oserror *e;
@@ -393,7 +393,7 @@ static _kernel_oserror *Cmd_FREE ( const char *args )
 }
 
 /* --------------------- */
-static _kernel_oserror *Cmd_LMLS ( const char *args )
+static _kernel_oserror *Cmd_ListFS ( const char *args )
 {
   char *argv[1];
 
@@ -407,7 +407,7 @@ static _kernel_oserror *Cmd_LMLS ( const char *args )
 
 /* --------------------- */
 
-static _kernel_oserror *Cmd_CONNECT ( const char *args )
+static _kernel_oserror *Cmd_LMConnect ( const char *args )
 {
   char *argv[5];
   err_t res;
@@ -436,7 +436,7 @@ static _kernel_oserror *Cmd_CONNECT ( const char *args )
 
 /* --------------------- */
 
-static _kernel_oserror *Cmd_DISCONNECT ( const char *args )
+static _kernel_oserror *Cmd_LMDisconnect ( const char *args )
 {
   char *argv[1];
   int mountID;
@@ -514,7 +514,7 @@ static void SetDefaultVars ( void )
 
 /* --------------------- */
 
-static _kernel_oserror *Cmd_LOGOFF( const char *args )
+static _kernel_oserror *Cmd_LMLogoff( const char *args )
 {
   (void) args;
   Lgn_Logoff();
@@ -523,7 +523,7 @@ static _kernel_oserror *Cmd_LOGOFF( const char *args )
 
 /* --------------------- */
 
-static _kernel_oserror *Cmd_LOGON( const char *args )
+static _kernel_oserror *Cmd_LMLogon( const char *args )
 {
   char *argv[3];
   if ( GetArgs(args, argv, 3) < 2 )
@@ -537,7 +537,7 @@ static _kernel_oserror *Cmd_LOGON( const char *args )
 
 /* --------------------- */
 
-static _kernel_oserror *Cmd_LMINFO ( const char *args )
+static _kernel_oserror *Cmd_LMInfo ( const char *args )
 {
   (void) args;
   Omni_Debug();
@@ -548,7 +548,7 @@ static _kernel_oserror *Cmd_LMINFO ( const char *args )
 
 /* --------------------- */
 
-static _kernel_oserror *Cmd_LMNAMEMODE ( const char *args )
+static _kernel_oserror *Cmd_LMNameMode ( const char *args )
 {
   char *argv[1];
   int tmp;
@@ -570,7 +570,7 @@ static _kernel_oserror *Cmd_LMNAMEMODE ( const char *args )
 
 /* --------------------- */
 
-static _kernel_oserror *Cmd_LMSERVER ( const char *args )
+static _kernel_oserror *Cmd_LMServer ( const char *args )
 {
   char *argv[MAX_ARGS];
   int i;
@@ -594,7 +594,7 @@ static _kernel_oserror *Cmd_LMSERVER ( const char *args )
 
 /* --------------------- */
 
-static _kernel_oserror *Cmd_LMPRINTERS ( const char *args )
+static _kernel_oserror *Cmd_LMPrinters ( const char *args )
 {
   char *argv[MAX_ARGS];
   int i;
@@ -619,7 +619,7 @@ static _kernel_oserror *Cmd_LMPRINTERS ( const char *args )
 
 /* --------------------- */
 
-static _kernel_oserror *Cmd_LMSTATS ( const char *args )
+static _kernel_oserror *Cmd_LMStats ( const char *args )
 {
   (void) args;
   Stat_Show();
@@ -655,7 +655,7 @@ static _kernel_oserror *Cmd_FS ( const char *args )
 
 /* --------------------- */
 
-static _kernel_oserror *Cmd_LMTRANSPORT ( const char *args )
+static _kernel_oserror *Cmd_LMTransport ( const char *args )
 {
   /* This is a *Configure/Status command handler */
   char *argv[1];
@@ -681,7 +681,6 @@ static _kernel_oserror *Cmd_LMTRANSPORT ( const char *args )
     return NULL;
   }
 #endif
-
   if ( GetArgs( args, argv, 1 ) < 1 )
     return Xlt_Error ( EBADPARAM );
 
@@ -699,7 +698,7 @@ static _kernel_oserror *Cmd_LMTRANSPORT ( const char *args )
 }
 
 /* --------------------- */
-static _kernel_oserror *Cmd_NBNSIP( const char *args )
+static _kernel_oserror *Cmd_LMNameServer( const char *args )
 {
   /* This is a *Configure/Status command handler - it's therefore unusual */
   char *argv[1];
@@ -737,10 +736,10 @@ static _kernel_oserror *Cmd_NBNSIP( const char *args )
     {
       unsigned long b0, b1, b2, b3;
 
-      b0 = (address.s_addr & 0x000000ff);
-      b1 = (address.s_addr & 0x0000ff00) >>  8;
-      b2 = (address.s_addr & 0x00ff0000) >> 16;
-      b3 = (address.s_addr & 0xff000000) >> 24;
+      b0 = (unsigned long)(address.s_addr & 0x000000ff);
+      b1 = (unsigned long)(address.s_addr & 0x0000ff00) >>  8;
+      b2 = (unsigned long)(address.s_addr & 0x00ff0000) >> 16;
+      b3 = (unsigned long)(address.s_addr & 0xff000000) >> 24;
 
       if ( ((b0 != 127) && (b0 <= 223))  &&  ((b3 != 255)) )
       {
@@ -759,52 +758,27 @@ static _kernel_oserror *Cmd_NBNSIP( const char *args )
 
 typedef _kernel_oserror * (*CommandFnPtr) ( const char *args );
 
-#define MAX_CMDS 15
-static CommandFnPtr Cmd_Dispatch[MAX_CMDS] =
+#define CmdEntry(X) [CMD_##X] = Cmd_##X
+static CommandFnPtr Cmd_Dispatch[] =
 {
-  Cmd_LANMAN,
-  Cmd_CONNECT,
-  Cmd_DISCONNECT,
-  Cmd_LOGON,
-  Cmd_LMINFO,
-  Cmd_LMNAMEMODE,
-  Cmd_LOGOFF,
-  Cmd_LMSERVER,
-  Cmd_LMPRINTERS,
-  Cmd_LMSTATS,
-  Cmd_FS,
-  Cmd_LMTRANSPORT,
-  Cmd_NBNSIP,
-  Cmd_FREE,
-  Cmd_LMLS
+  CmdEntry(LanMan),
+  CmdEntry(LMConnect),
+  CmdEntry(LMDisconnect),
+  CmdEntry(LMLogon),
+  CmdEntry(LMInfo),
+  CmdEntry(LMNameMode),
+  CmdEntry(LMLogoff),
+  CmdEntry(LMServer),
+  CmdEntry(LMPrinters),
+  CmdEntry(LMStats),
+  CmdEntry(FS),
+  CmdEntry(LMTransport),
+  CmdEntry(LMNameServer),
+  CmdEntry(Free),
+  CmdEntry(ListFS)
 };
 
-#ifdef TRACE
-static void chk_a_command(CommandFnPtr ptr, int num)
-{
-        if (Cmd_Dispatch[num] != ptr) {
-           fprintf(stderr, "Command-table error (%d)\n", num);
-        }
-}
-static void chk_commands(void)
-{
-  chk_a_command(Cmd_LANMAN, CMD_LanMan);
-  chk_a_command(Cmd_CONNECT, CMD_LMConnect);
-  chk_a_command(Cmd_DISCONNECT, CMD_LMDisconnect);
-  chk_a_command(Cmd_LOGON, CMD_LMLogon);
-  chk_a_command(Cmd_LMINFO, CMD_LMInfo);
-  chk_a_command(Cmd_LMNAMEMODE, CMD_LMNameMode);
-  chk_a_command(Cmd_LOGOFF, CMD_LMLogoff);
-  chk_a_command(Cmd_LMSERVER, CMD_LMServer);
-  chk_a_command(Cmd_LMPRINTERS, CMD_LMPrinters);
-  chk_a_command(Cmd_LMSTATS, CMD_LMStats);
-  chk_a_command(Cmd_FS, CMD_FS);
-  chk_a_command(Cmd_LMTRANSPORT, CMD_LMTransport);
-  chk_a_command(Cmd_NBNSIP, CMD_LMNameServer);
-  chk_a_command(Cmd_FREE, CMD_Free);
-  chk_a_command(Cmd_LMLS, CMD_LMls);
-}
-#endif
+#define MAX_CMDS (sizeof Cmd_Dispatch / sizeof Cmd_Dispatch[0])
 
 /* --------------------- */
 
@@ -1095,10 +1069,6 @@ _kernel_oserror *LM_Initialise(const char *cmd_tail, int pod_base, void *pw)
   if (R.r[1] < 0xA2)
     return Xlt_Error(ERISCOSVER);
 
-#ifdef TRACE
-  chk_commands();
-#endif
-
 if (cmd_tail != NULL)
   {
     err = Xlt_Error(ProcessCmdLine(cmd_tail));
@@ -1107,10 +1077,12 @@ if (cmd_tail != NULL)
   }
 
   err = LM_Declare();
+
   if (err != NULL)
       return err;
 
   LM_Vars.initialised = LMInitState_PreInit;
+
   (void) LM_init_phase_2();
 
 #ifndef NO_NETBEUI

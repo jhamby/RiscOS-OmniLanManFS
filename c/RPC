@@ -204,7 +204,7 @@ static err_t RPC_EnumSharesOnConnection ( char drv, char *server )
        are a share name + null termination. If the share name
        ends in '$', it is hidden and should not be listed.
        [sbrodie: ... except if it's an IPC share, I've decided.  Also
-       we store the comments too for *lanman:lmls to display.  Why is there
+       we store the comments too for *lanman:listfs to display.  Why is there
        a mystical word in the returned param block which is subtracted from
        the offset field? Dunno, but SAMBA does it and Windows 98 needs it.]
     */

@@ -50,6 +50,13 @@ extern void Xlt_NameDOStoRO ( char *riscos_dst, char *dos_src );
 #define NM_LOWERCASE 1
 #define NM_FIRSTCAPS 2
 
+/* Mime mappings */
+#define MimeMap_Translate       0x50B00
+#define MMM_TYPE_RISCOS         0
+#define MMM_TYPE_RISCOS_STRING  1
+#define MMM_TYPE_MIME           2
+#define MMM_TYPE_DOT_EXTN       3
+
 extern err_t Xlt_ExpandSearchEntry ( BYTE *entry,
             char *DOS_pathname,
             char *name_out,

@@ -30,6 +30,8 @@
 
 #include "kernel.h"
 #include "stdtypes.h"
+#include "Global/FileTypes.h"
+
 #include "Xlate.h"
 #include "attr.h"
 #include "omni.h"
@@ -1184,56 +1186,97 @@ err_t Xlt_SplitLeafnameX2 ( char *leafname, RISCOS_ATTRIBS *pRA,
   char **terminator)
 {
   int type, len;
-  char *term;
+  char *term, *oldname;
   err_t res = ENOTPRESENT;
+  _kernel_swi_regs rset;
 
   *terminator = NULL;
-  if (leafname == NULL) {
+  if (leafname == NULL)
+    {
     /* Oh dear - don't understand this - just claim it's text */
     pRA->loadaddr |= 0xFFFFFF00;
     return res;
-  }
-  debug1("Xlt_SplitLeafnameX2(\"%s\",....)\n", leafname);
+    }
+
+  debug1("Xlt_SplitLeafnameX2('%s',...)\n", leafname);
+
   term = strchr(leafname, '\0');
-  if ((term - leafname) < 5) {
-    /* Name too short?  Must be text. */
-    pRA->loadaddr |= 0xFFFFFF00;
-    return res;
-  }
-  leafname = term - 4;
-  if (leafname[0] != FileChar_TypedNamePrefix) {
-    /* Not an extension?  Must be text */
-    pRA->loadaddr |= 0xFFFFFF00;
-    return res;
-  }
-  if (stricmp(leafname+1, FileString_UntypedFile) == 0) {
-    debug0("File is untyped (,lxa)\n");
-    pRA->loadaddr = untyped_load;
-    pRA->execaddr = untyped_exec;
-    *terminator = leafname;
-    res = OK;
-  }
-  else if (stricmp(leafname+1, FileString_DeadFile) == 0) {
-    pRA->loadaddr = pRA->execaddr = deaddead;
-    debug0("File is DEADDEAD\n");
-    *terminator = leafname;
-    res = OK;
-  }
-  else if (sscanf(leafname+1, "%x%n", &type, &len) == 1 && len == 3) {
-  /* note.  sscanf returns the number of conversions which were
-   * successfully performed.  the %n conversion never fails and
-   * does not count towards the total number of conversions, but
-   * holds the number of characters consumed from the source
-   * string.  Therefore, provided that len was 3, then we have
-   * consumed three hex digits.
-   */
-    pRA->loadaddr = ENCODE_FILETYPE(pRA->loadaddr, type);
-    *terminator = leafname;
-    debug3("Filetype is %#03x; load/exec=%#08x %#08x\n", type,
-    	pRA->loadaddr, pRA->execaddr);
-    res = OK;
-  }
-  return res;
+  oldname = leafname;
+  if ((term - leafname) > 4)
+     {
+     /* Ah good,it's at least 5 letters long */
+     leafname = term - 4;
+     if (leafname[0] == FileChar_TypedNamePrefix)
+        {
+        /* At least 5 letters long and of the form ",ttt" */
+        if (stricmp(leafname+1, FileString_UntypedFile) == 0)
+           {
+           debug0("File is untyped (,lxa)\n");
+           pRA->loadaddr = untyped_load;
+           pRA->execaddr = untyped_exec;
+           *terminator = leafname;
+           res = OK;
+           }
+        else
+           {
+           if (stricmp(leafname+1, FileString_DeadFile) == 0)
+              {
+              pRA->loadaddr = pRA->execaddr = deaddead;
+              debug0("File is DEADDEAD\n");
+              *terminator = leafname;
+              res = OK;
+              }
+           else
+              {
+              if (sscanf(leafname+1, "%x%n", &type, &len) == 1 && len == 3)
+                 {
+                 /* note.  sscanf returns the number of conversions which were
+                  * successfully performed.  the %n conversion never fails and
+                  * does not count towards the total number of conversions, but
+                  * holds the number of characters consumed from the source
+                  * string.  Therefore, provided that len was 3, then we have
+                  * consumed three hex digits.
+                  */
+                 pRA->loadaddr = ENCODE_FILETYPE(pRA->loadaddr, type);
+                 *terminator = leafname;
+                 debug3("Filetype is %#03x; load/exec=%#08x %#08x\n", type,
+                         pRA->loadaddr, pRA->execaddr);
+                 res = OK;
+                 }
+              }
+           }
+        }
+     }
+
+  if (res != OK)
+     {
+     /* No ",ttt" was found,try the mimemap for ".ext" */
+     leafname = oldname;
+     term = strchr(leafname, '/');
+     if (term != NULL)
+        {
+        /* A dot was found so try to lookup the dos style extension */
+        term++;  /* Skip '.' */
+        rset.r[0] = MMM_TYPE_DOT_EXTN;
+        rset.r[1] = (int)term;
+        rset.r[2] = MMM_TYPE_RISCOS;
+        if (_kernel_swi(MimeMap_Translate, &rset, &rset) == NULL)
+           {
+           pRA->loadaddr = ENCODE_FILETYPE(pRA->loadaddr, rset.r[3]);
+           debug2("Mimemap gave type %X for '%s'\n", rset.r[3], leafname );
+           *terminator = strchr(leafname, '\0'); /* Safe to point to that null on exit */
+           res = OK;
+           }
+        }
+     }
+
+  if (res != OK)
+     {
+     /* No ",ttt" and no mimemap lookup - mark as a DOS file */
+     pRA->loadaddr = ENCODE_FILETYPE(pRA->loadaddr, FileType_MSDOS);
+     }
+
+return res;
 }
 #endif
 

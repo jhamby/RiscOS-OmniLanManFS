@@ -29,6 +29,7 @@
 #include <string.h>
 
 #include "kernel.h"
+#include "Global/FileTypes.h"
 
 /* Our includes */
 
@@ -70,27 +71,40 @@ static void GetDefaultType ( char *leafname, RISCOS_ATTRIBS *ra )
 {
   struct ext_type *pET;
   int ftype;
+  _kernel_swi_regs rset ;
 
   /* See if OmniFiler can help us */
 
   if ( Omni_GetDefaultType(leafname, &ftype) == OK )
   {
-    debug1("Omni gave default type %X\n", ftype );
+    debug2("Omni gave default type %X for '%s'\n", ftype, leafname );
     ra->loadaddr = (ra->loadaddr & 0xFFF000FF) |
                    ((ftype << 8) & 0x000FFF00);
     return;
   }
-  else
-    debug1("Omni wouldn't translate '%s'", leafname );
-
-  /* Get extension */
 
   leafname = strchr(leafname, '.');
   if ( leafname == NULL )  /* No extension */
-    return;
+     {
+     debug1("No suffix,assuming DOS filetype for '%s'\n", leafname );
+     ra->loadaddr = FileType_MSDOS << 8;
+     return;
+     }
 
   leafname++;  /* Skip '.' */
 
+  /* Have a look in the mimemap */
+  rset.r[0] = MMM_TYPE_DOT_EXTN;
+  rset.r[1] = (int)leafname;
+  rset.r[2] = MMM_TYPE_RISCOS;
+  if (_kernel_swi(MimeMap_Translate, &rset, &rset) == NULL)
+   {
+   ra->loadaddr = rset.r[3] << 8;
+   debug2("Mimemap gave type %X for '%s'\n", rset.r[3], leafname );
+   return;
+   }
+
+  /* Look through the feable small table */
   for ( pET = FTypes; pET->ext != NULL; pET++ )
   {
     if ( strcmp ( pET->ext, leafname ) == 0 )

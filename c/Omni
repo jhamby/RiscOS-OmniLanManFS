@@ -1582,22 +1582,22 @@ void Omni_AddInfo ( int flags, char *serv_name, char *string, char *comment )
       return;
 
     case OAI_DISK:
-      tag = D_VALID_TAG;
+      tag = (int)D_VALID_TAG;
       list = &pNLsrv->u.server.known_disks;
       break;
 
     case OAI_PRINTER:
-      tag = P_VALID_TAG;
+      tag = (int)P_VALID_TAG;
       list = &pNLsrv->u.server.known_printers;
       break;
 
     case OAI_IPC:
-      tag = I_VALID_TAG;
+      tag = (int)I_VALID_TAG;
       list = &pNLsrv->u.server.known_ipc;
       break;
 
     case OAI_DEVICE:
-      tag = C_VALID_TAG;
+      tag = (int)C_VALID_TAG;
       list = &pNLsrv->u.server.known_comms;
       break;
 
@@ -1717,7 +1717,8 @@ void Omni_Debug ( void )
     printf("\n  Printers : ");
     showlist(pNL->u.server.known_printers);
   }
-  printf("\n\n");
+
+  if (ServerList != NULL) printf("\n\n");
 
   for ( pNL = MountsList; pNL != NULL; pNL = pNL->next )
   {
@@ -1751,5 +1752,4 @@ void Omni_Debug ( void )
     printf("\n%d error(s) locating network resources:\nLast error - %s\n",
        RPC_ErrorCount,  RPC_DebugMsg );
 
-  printf("\n");
 }
