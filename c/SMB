@@ -288,6 +288,7 @@ struct ActiveServer
   int      SMB_flg;    /* Flags to pass in SMB_flg field */
 #ifdef LONGNAMES
   int      SMB_flg2;   /* Flags to pass in SMB_flg2 field */
+  int      t2flags;
 #endif
   int      prot;       /* which protocol was nogitated */
   char     guid[16];   /* GUID returned from NT negprot commands */
@@ -311,9 +312,6 @@ struct ActiveShare
   int     Uid;          /* User ID */
   int     Datasize;
   int     FH_base;    /* Base number for file handles */
-#ifdef LONGNAMES
-  int     t2flags;
-#endif
   char    drvletter;  /* Letter for identifying 'drive' */
   char    sharename[SHARENAME_LEN];  /* upper case */
 };
@@ -987,7 +985,7 @@ static err_t SMB_Negotiate( hSHARE hS )
 #ifdef LONGNAMES
     debug0("Enabling long filenames on this share\n");
     hS->hServer->SMB_flg2 = SMB_KNOWS_LONG_NAMES; /* | SMB_IS_LONG_NAME;*/
-    hS->t2flags = T2FLAGS_LONGNAMES;
+    hS->hServer->t2flags = T2FLAGS_LONGNAMES;
 #endif
     hS->hServer->Sesskey = SMB_RxWords[6] | (SMB_RxWords[7] << 16);
     if (hS->hServer->bloblen > 0) {
@@ -1006,7 +1004,7 @@ static err_t SMB_Negotiate( hSHARE hS )
     hS->hServer->ProtFlags = PROT_SETDATETIME;
     hS->hServer->SMB_flg = 0;
 #ifdef LONGNAMES
-    hS->t2flags = 0;
+    hS->hServer->t2flags = 0;
     hS->hServer->SMB_flg2 = 0;
 #endif
   }
@@ -1313,7 +1311,7 @@ static hSHARE AllocShare ( void )
       hS->Tid=0;
       hS->Datasize=0;
 #ifdef LONGNAMES
-      hS->t2flags = 0;
+      hS->hServer->t2flags = 0;
 #endif
       return hS;
     }
@@ -1478,7 +1476,7 @@ bool SMB_IsLongNameFS( const char * path)
   hSHARE hS;
 
   hS = GetShareNoConn(*path);
-  if (hS != NULL && (hS->t2flags & T2FLAGS_LONGNAMES)) return true;
+  if (hS != NULL && (hS->hServer->t2flags & T2FLAGS_LONGNAMES)) return true;
   return false;
 }
 
@@ -1863,11 +1861,11 @@ static err_t SMB_GetAttribsX2 (hSHARE hS, char *filename, DOS_ATTRIBS *pAttr )
     return Xlt_ExpandSearchEntryX2 ( tp.data_out_buf, NULL, NULL, pAttr, NULL);
   }
 
-  if (!(hS->t2flags & T2FLAGS_TESTEDSWAP)) {
+  if (!(hS->hServer->t2flags & T2FLAGS_TESTEDSWAP)) {
     /* Need to test whether we have to swap the date/time fields */
     char fnbuffer[8];
     DOS_ATTRIBS aattrbuf;
-    hS->t2flags |= T2FLAGS_TESTEDSWAP;
+    hS->hServer->t2flags |= T2FLAGS_TESTEDSWAP;
     fnbuffer[0] = *filename;
     fnbuffer[1] = ':';
     fnbuffer[2] = '\\';
@@ -1901,7 +1899,7 @@ static err_t SMB_GetAttribsX2 (hSHARE hS, char *filename, DOS_ATTRIBS *pAttr )
           if (res == OK) {
             if (sattrbuf.utime != aattrbuf.utime) {
                debug0("Need to swap date/time!\n");
-               hS->t2flags |= T2FLAGS_SWAPDATETIME;
+               hS->hServer->t2flags |= T2FLAGS_SWAPDATETIME;
                swap_time_date(tp.data_out_buf);
                swap_time_date(tp.data_out_buf+4);
                swap_time_date(tp.data_out_buf+8);
@@ -1940,7 +1938,7 @@ static err_t SMB_GetAttribsX2 (hSHARE hS, char *filename, DOS_ATTRIBS *pAttr )
    * and dates of the file before calling Xlt to expand them ... but only
    * if the remote server has this bug.
    */
-  if (hS->t2flags & T2FLAGS_SWAPDATETIME) {
+  if (hS->hServer->t2flags & T2FLAGS_SWAPDATETIME) {
     swap_time_date(tp.data_out_buf);
     swap_time_date(tp.data_out_buf+4);
     swap_time_date(tp.data_out_buf+8);
@@ -1997,7 +1995,7 @@ err_t SMB_GetAttribs ( char *filename, DOS_ATTRIBS *pAttr )
     return res;
 
 #ifdef LONGNAMES
-  if (hS->t2flags & T2FLAGS_LONGNAMES)
+  if (hS->hServer->t2flags & T2FLAGS_LONGNAMES)
     return SMB_GetAttribsX2 (hS, filename, pAttr );
 #endif
 
@@ -2156,7 +2154,7 @@ err_t SMB_GetFreeSpace ( char lettr, struct disk_size_response *pDSR  )
     return res;
 
 #ifdef LONGNAMES
-  if (hS->t2flags & T2FLAGS_LONGNAMES)
+  if (hS->hServer->t2flags & T2FLAGS_LONGNAMES)
   {
     return SMB_GetFreeSpaceX2(hS, pDSR);
   }
@@ -2379,7 +2377,7 @@ err_t SMB_ReadDirEntries ( char *path, int count,
   }
 
 #ifdef LONGNAMES
-  if (con->SearchDrive->t2flags & T2FLAGS_LONGNAMES)
+  if (con->SearchDrive->hServer->t2flags & T2FLAGS_LONGNAMES)
   {
      struct Transact2_SearchContext *const t2sc = (conp == NULL) ? &rde_context.t2 : &conp->t2;
      return SMB_ReadDirEntriesX2(con->SearchDrive, path, count, dirfn, private, t2sc);
