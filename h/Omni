@@ -55,17 +55,22 @@ extern _kernel_oserror *Omni_FreeOp_SWI ( _kernel_swi_regs *R );
 
 
 extern void Omni_Debug(void);
+extern _kernel_oserror *Omni_DumpShares(char *server_name);
+extern _kernel_oserror *Omni_DumpServers(void);
 
-extern void Omni_AddInfo ( int flags, char *server, char *descr );
+extern void Omni_AddInfo ( int flags, char *server, char *descr, char *comment );
 #define OAI_SERVER     0
 #define OAI_DISK       1
 #define OAI_PRINTER    2
+#define OAI_DEVICE     3
+#define OAI_IPC        4
 
 /* These routines are actually in S.Interface */
 extern void OmniS_Suicide (char *modname);
 extern void OmniS_ResourceInit (void);
 extern void OmniS_ResourceShutdown (void);
 extern void OmniS_ResFSStarting(int R2, int R3);
+extern void OmniS_FastMultiply64(void *result, int arg1, int arg2);
 
 /* OmniClient SWI definitions --------------- */
 #define Omni_base 0x4A200

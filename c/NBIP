@@ -1960,7 +1960,7 @@ EXPORT char * _NB_DescribeLink ( hSESSION hS )
     return NULL;
 
   sprintf(namebuf, "%s port %d", inet_ntoa(pNS->rmt_addr.sin_addr),
-                                 pNS->rmt_addr.sin_port );
+                                 htons(pNS->rmt_addr.sin_port ));
 
   return namebuf;
 }

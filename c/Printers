@@ -152,7 +152,7 @@ err_t Prn_CreateJob ( char *servname, char *prnname, char *userid,
   if ( res != OK )
     return res;
 
-  Omni_AddInfo ( OAI_PRINTER, servname, prnname );
+  Omni_AddInfo ( OAI_PRINTER, servname, prnname, NULL );
   sprintf ( namebuf, "%05d", ++JobSerialNo );
 
   /* Open printer spool file */

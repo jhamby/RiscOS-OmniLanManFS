@@ -231,6 +231,30 @@ CollectCallbacks
 
 	LDMFD  SP!, {PC}^
 
+; Long multiplier ----------------------------------------
+; Taken from Acorn Assembler manual.
+; extern void OmniS_FastMultiply64(fspc_64 *, unsigned, unsigned);
+	EXPORT OmniS_FastMultiply64
+
+OmniS_FastMultiply64
+	STMFD	sp!, {lr}
+	MOVS	lr, a2, LSR #16
+	BIC	a2, a2, lr, LSL #16
+	MOV	ip, a3, LSR #16
+	BIC	a3, a3, ip, LSL #16
+	MUL	a4, a2, a3
+	MUL	a3, lr, a3
+	MUL	a2, ip, a2
+	MULNE	lr, ip, lr
+	ADDS	a2, a2, a3
+	ADDCS	lr, lr, #&10000
+	ADDS	a4, a4, a2, LSL #16
+	ADC	lr, lr, a2, LSR #16
+	STMIA	a1, {a4, lr}
+	LDMFD	sp!, {pc}^
+
+
+
 ; Resources ----------------------------------------------
 
 ; This is Acorn's sorry excuse for the lack of a resource compiler.

@@ -181,7 +181,7 @@ static err_t Dir_CallbackFn ( BYTE *entry, int format, void *pw )
 #endif
   if ( entry[9] == '.' ) {
     /* Ignore '.' and '..' directories */
-    if (entry[10] == '.' && entry[10] == '\0' || entry[11] == '\0') {
+    if (entry[10] == '.' && entry[11] == '\0' || entry[10] == '\0') {
       return OK;
     }
   }

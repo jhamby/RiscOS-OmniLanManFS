@@ -145,5 +145,12 @@ command-keyword-table: LM_Command
     help-text: "*Free displays the total free space on a LanManFS share",
     invalid-syntax: "Syntax:\t*Free [<disc spec.>]\r",
     fs-command:,
+                 ),
+
+        LMls(min-args:0, max-args:1,
+    help-text: "*LMls displays the servers in the current workgroup or\r"
+               "the shares on the given server",
+    invalid-syntax: "Syntax:\t*LMls [server]\r",
+    fs-command:,
                   )
 

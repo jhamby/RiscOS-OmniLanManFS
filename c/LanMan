@@ -79,6 +79,10 @@ static void stopcallbacks(void);
 
 static _kernel_oserror *LM_init_phase_2(void);
 
+/* --------------------- */
+
+struct LMvars LM_Vars;
+
 /* ---------------------------------- */
 
 int  LM_pw;          /* Our module's private word */
@@ -368,6 +372,19 @@ static _kernel_oserror *Cmd_FREE ( const char *args )
 }
 
 /* --------------------- */
+static _kernel_oserror *Cmd_LMLS ( const char *args )
+{
+  char *argv[1];
+
+  if (GetArgs(args, argv, sizeof(argv)/sizeof(*argv)) == 0) {
+    return Omni_DumpServers();
+  }
+  else {
+    return Omni_DumpShares(argv[0]);
+  }
+}
+
+/* --------------------- */
 
 static _kernel_oserror *Cmd_CONNECT ( const char *args )
 {
@@ -415,9 +432,6 @@ static _kernel_oserror *Cmd_DISCONNECT ( const char *args )
   return Xlt_Error (res);
 }
 
-/* --------------------- */
-
-struct LMvars LM_Vars;
 
 /* --------------------- */
 
@@ -541,12 +555,12 @@ static _kernel_oserror *Cmd_LMSERVER ( const char *args )
 
   if ( argv[1] == NULL ) /* Just name of server */
   {
-    Omni_AddInfo ( OAI_SERVER, argv[0], NULL );
+    Omni_AddInfo ( OAI_SERVER, argv[0], NULL, NULL );
   }
   else
   {
     for ( i=1; i < MAX_ARGS && argv[i] != NULL; i++ )
-      Omni_AddInfo ( OAI_DISK, argv[0], argv[i] );
+      Omni_AddInfo ( OAI_DISK, argv[0], argv[i], NULL );
   }
 
   Omni_RecheckInfo (RI_SERVERS);
@@ -565,12 +579,12 @@ static _kernel_oserror *Cmd_LMPRINTERS ( const char *args )
 
   if ( argv[1] == NULL ) /* Just name of server */
   {
-    Omni_AddInfo ( OAI_SERVER, argv[0], NULL );
+    Omni_AddInfo ( OAI_SERVER, argv[0], NULL, NULL );
   }
   else
   {
     for ( i=1; i < MAX_ARGS && argv[i] != NULL; i++ )
-      Omni_AddInfo ( OAI_PRINTER, argv[0], argv[i] );
+      Omni_AddInfo ( OAI_PRINTER, argv[0], argv[i], NULL );
   }
 
   Omni_RecheckInfo (RI_SERVERS);
@@ -709,7 +723,7 @@ static _kernel_oserror *Cmd_NBNSIP( const char *args )
 
 typedef _kernel_oserror * (*CommandFnPtr) ( const char *args );
 
-#define MAX_CMDS 14
+#define MAX_CMDS 15
 static CommandFnPtr Cmd_Dispatch[MAX_CMDS] =
 {
   Cmd_LANMAN,
@@ -725,7 +739,8 @@ static CommandFnPtr Cmd_Dispatch[MAX_CMDS] =
   Cmd_FS,
   Cmd_LMTRANSPORT,
   Cmd_NBNSIP,
-  Cmd_FREE
+  Cmd_FREE,
+  Cmd_LMLS
 };
 
 #ifdef TRACE
@@ -751,6 +766,7 @@ static void chk_commands(void)
   chk_a_command(Cmd_LMTRANSPORT, CMD_LMTransport);
   chk_a_command(Cmd_NBNSIP, CMD_LMNameServer);
   chk_a_command(Cmd_FREE, CMD_Free);
+  chk_a_command(Cmd_LMLS, CMD_LMls);
 }
 #endif
 

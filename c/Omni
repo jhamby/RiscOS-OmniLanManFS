@@ -60,7 +60,7 @@
 #include "omni.h"
 #include "LanMan_MH.h"
 
-#define INFO_STR_LEN 32
+#define INFO_STR_LEN 64
 /* Length of info string kept about servers & mounts */
 
 /* SWI definitions */
@@ -82,6 +82,10 @@
 #define S_VALID_TAG 0x4938EE2B
 /* Tag for a valid current mount */
 #define M_VALID_TAG 0x9384EBE2
+/* Tag for an IPC mount */
+#define I_VALID_TAG 0x24435049
+/* Tag for comms device mount */
+#define C_VALID_TAG 0x314D4F43
 
 typedef struct namelist NAMELIST;  /* Our general holds-everything list */
 
@@ -91,6 +95,8 @@ struct server_extra_info
 {
   NAMELIST *known_disks;  /* -> list of D_VALID_TAG records */
   NAMELIST *known_printers;  /* -> list of P_VALID_TAG records */
+  NAMELIST *known_ipc;  /* list of I_VALID_TAG records */
+  NAMELIST *known_comms; /* list of C_VALID_TAG records */
   char      info_string[INFO_STR_LEN];
 };
 
@@ -106,6 +112,12 @@ struct mount_extra_info
   char connected;     /* Non-zero as soon as it is mounted */
 };
 
+/* Information on a share */
+struct share_extra_info
+{
+  char      info_string[INFO_STR_LEN];
+};
+
 /* Multipurpose name-list structure */
 
 struct namelist
@@ -118,6 +130,7 @@ struct namelist
   {
     struct mount_extra_info  mount;
     struct server_extra_info server;
+    struct share_extra_info share;
   } u;
 
   struct namelist *master_link;
@@ -587,62 +600,6 @@ typedef struct fspc_64  {
         unsigned lo, hi;
 } fspc_64;
 
-/* Multiply macro taken from NSPRLib */
-#define LL_MUL(r, a, b) { \
-    fspc_64 _a, _b; \
-    _a = a; _b = b; \
-    LL_MUL32(r, _a.lo, _b.lo); \
-    (r).hi += _a.hi * _b.lo + _a.lo * _b.hi; \
-}
-
-#define PR_BIT(n)       ((unsigned)1 << (n))
-#define PR_BITMASK(n)   (PR_BIT(n) - 1)
-
-#define _lo16(a)        ((a) & PR_BITMASK(16))
-#define _hi16(a)        ((a) >> 16)
-
-#define LL_MUL32(r, a, b) { \
-     unsigned _a1, _a0, _b1, _b0, _y0, _y1, _y2, _y3; \
-     _a1 = _hi16(a), _a0 = _lo16(a); \
-     _b1 = _hi16(b), _b0 = _lo16(b); \
-     _y0 = _a0 * _b0; \
-     _y1 = _a0 * _b1; \
-     _y2 = _a1 * _b0; \
-     _y3 = _a1 * _b1; \
-     _y1 += _hi16(_y0);                         /* can't carry */ \
-     _y1 += _y2;                                /* might carry */ \
-     if (_y1 < _y2)    \
-        _y3 += (unsigned)(PR_BIT(16));  /* propagate */ \
-     (r).lo = (_lo16(_y1) << 16) + _lo16(_y0); \
-     (r).hi = _y3 + _hi16(_y1); \
-}
-
-#ifdef __CC_NORCROFT
-/* No way of checking version number though.
- * Version 5.11 of the compiler should be OK because I fixed this bug
- * in that version [sbrodie]
- */
-static void _Omni_ForceCSESync(void) {}
-#else
-#  define _Omni_ForceCSESync() ((void)0)
-#endif
-
-#ifdef __CC_NORCROFT
-/* May as well optimise this a bit */
-__value_in_regs
-#endif
-static fspc_64 Omni_Multiply64(uint plo1, uint plo2)
-{
-        fspc_64 p1, p2, res;
-        p1.hi = p2.hi = 0;
-        p1.lo = plo1;
-        p2.lo = plo2;
-        _Omni_ForceCSESync();
-        LL_MUL(res, p1, p2);
-        _Omni_ForceCSESync();
-        return res;
-}
-
 static err_t Omni_FreeSpace64 ( int mount_id, int *success,
        fspc_64 *freespace_out, fspc_64 *usedspace_out, fspc_64 *totspace_out )
 {
@@ -653,9 +610,12 @@ static err_t Omni_FreeSpace64 ( int mount_id, int *success,
   if ( res != OK )
     return res;
 
-  *freespace_out = Omni_Multiply64(DSR.freeblks, DSR.blksize);
-  *totspace_out = Omni_Multiply64(DSR.totalblks, DSR.blksize);
-  *usedspace_out = Omni_Multiply64(DSR.totalblks - DSR.freeblks, DSR.blksize);
+  /* OmniS_FastMultiply64 does a 32x32 bit multiply and stores the 64-bit
+   * result in the supplied pointer (1st param)
+   */
+  OmniS_FastMultiply64(freespace_out, DSR.freeblks, DSR.blksize);
+  OmniS_FastMultiply64(totspace_out, DSR.totalblks, DSR.blksize);
+  OmniS_FastMultiply64(usedspace_out, DSR.totalblks - DSR.freeblks, DSR.blksize);
 
   *success = 0;
   return OK;
@@ -1525,6 +1485,14 @@ void Omni_ClearLists ( void )
       DeleteFromList ( &(pNLsrv->u.server.known_printers),
                          pNLsrv->u.server.known_printers );
 
+    while ( pNLsrv->u.server.known_ipc != NULL )
+      DeleteFromList ( &(pNLsrv->u.server.known_ipc),
+                         pNLsrv->u.server.known_ipc );
+
+    while ( pNLsrv->u.server.known_comms != NULL )
+      DeleteFromList ( &(pNLsrv->u.server.known_comms),
+                         pNLsrv->u.server.known_comms );
+
     /* If the server has no active mounts left, delete it too */
 
     if ( pNLsrv->u.server.known_disks == NULL )
@@ -1584,9 +1552,10 @@ static void showlist ( NAMELIST *pNL )
 
 /* ------------------------------ */
 
-void Omni_AddInfo ( int flags, char *serv_name, char *string )
+void Omni_AddInfo ( int flags, char *serv_name, char *string, char *comment )
 {
-  NAMELIST *pNLsrv;
+  NAMELIST *pNLsrv, **list;
+  int tag = 0;
 
   pNLsrv = AddToList ( &ServerList, S_VALID_TAG, serv_name );
   if ( pNLsrv == NULL )  /* Couldn't add it */
@@ -1598,20 +1567,98 @@ void Omni_AddInfo ( int flags, char *serv_name, char *string )
       /* Amend information about server */
       if ( string != NULL )
         strcpyn ( pNLsrv->u.server.info_string, string, INFO_STR_LEN );
-      break;
+      return;
 
     case OAI_DISK:
-      AddToList ( &(pNLsrv->u.server.known_disks),
-                                                D_VALID_TAG, string);
+      tag = D_VALID_TAG;
+      list = &pNLsrv->u.server.known_disks;
       break;
 
     case OAI_PRINTER:
-      AddToList ( &(pNLsrv->u.server.known_printers),
-                                                P_VALID_TAG, string );
+      tag = P_VALID_TAG;
+      list = &pNLsrv->u.server.known_printers;
       break;
+
+    case OAI_IPC:
+      tag = I_VALID_TAG;
+      list = &pNLsrv->u.server.known_ipc;
+      break;
+
+    case OAI_DEVICE:
+      tag = C_VALID_TAG;
+      list = &pNLsrv->u.server.known_comms;
+      break;
+
+    default:
+      return;
+  }
+
+  AddToList ( list, tag, string );
+  pNLsrv = FindInList(*list, string);
+  if (pNLsrv != NULL) {
+    if (comment != NULL) {
+      strcpyn ( pNLsrv->u.share.info_string, comment, INFO_STR_LEN );
+    }
+    else {
+      pNLsrv->u.share.info_string[0] = '\0';
+    }
   }
 }
 
+_kernel_oserror *Omni_DumpServers(void)
+{
+        err_t res;
+        int token;
+        char *eptr;
+        res = Omni_ListServers(0,0,0,&eptr,&token);
+        if (res != OK) return Xlt_Error(res);
+        Omni_Debug();
+        return NULL;
+}
+
+static void Omni_DumpSharesPrint(NAMELIST *pNL, const char *type)
+{
+  for (; pNL != NULL; pNL = pNL->next) {
+    printf("  %-16s  %-10s %s\n", pNL->name, type, pNL->u.share.info_string);
+  }
+}
+
+static void Omni_DumpServersPrint(NAMELIST *pNL)
+{
+  for (; pNL != NULL; pNL = pNL->next) {
+    printf("  %-16s  %s\n", pNL->name, pNL->u.server.info_string);
+  }
+}
+
+_kernel_oserror *Omni_DumpShares(char *server_name)
+{
+        err_t res;
+        int token;
+        char *eptr;
+        NAMELIST *pserv;
+
+	/* Don't give a XXXX about getting the info back - just force the RPC
+	 * call to execute and stuff all the data into the data structures and
+	 * we'll go through the data structures ourselves, tvm.
+	 */
+        res = Omni_ListMounts(0, 0, 0, 0, server_name, &eptr, &token);
+        if (res != OK) return Xlt_Error(res);
+
+        pserv = FindInList(ServerList, server_name);
+        if (pserv != NULL && pserv->tag == S_VALID_TAG) {
+                printf("  Sharename         Type       Comment\n"
+                       "  ---------         ----       -------\n\n");
+                Omni_DumpSharesPrint(pserv->u.server.known_disks, "Disk");
+                Omni_DumpSharesPrint(pserv->u.server.known_printers, "Printer");
+                Omni_DumpSharesPrint(pserv->u.server.known_ipc, "IPC");
+                Omni_DumpSharesPrint(pserv->u.server.known_comms, "Comms");
+
+                printf("\n  Server            Comment\n"
+                         "  ------            -------\n");
+                Omni_DumpServersPrint(ServerList);
+        }
+        return NULL;
+}
 
 /* ------------------- */
 

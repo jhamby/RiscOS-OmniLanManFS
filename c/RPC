@@ -126,12 +126,13 @@ static int getword ( BYTE *p )
 }
 
 /* ----------------- */
-#ifndef OMIT_UNUSED_FNS
+#if 0
 static int getlong ( BYTE *p )
 {
   return ( p[0] + (p[1] << 8) + (p[2] << 16)+ (p[3] << 24));
 }
 #endif
+
 /* ----------------- */
 
 static BYTE *getpointer ( BYTE *p )
@@ -163,7 +164,7 @@ static bool check_hidden ( char *name )
 static err_t RPC_EnumSharesOnConnection ( char drv, char *server )
 {
   BYTE *p;
-  int i;
+  int i, co;
   err_t res;
 
   /* Assemble parameters for RPC call */
@@ -187,6 +188,8 @@ static err_t RPC_EnumSharesOnConnection ( char drv, char *server )
   if ( getword(p) != 0 )   /* API return code; 0 = success */
     return ERPCERROR;            /* Otherwise, call it 'generic' error */
 
+  co = getword(p+2);  /* Comment offset adjustment - ( why?? ) */
+
   i = getword(p+4);        /* Number of records returned */
   if ( i*20 > TP.data_out_len )  /* Silly values! */
     return EDATALEN;
@@ -200,15 +203,25 @@ static err_t RPC_EnumSharesOnConnection ( char drv, char *server )
     /* p is the start of the record. The first 13 bytes
        are a share name + null termination. If the share name
        ends in '$', it is hidden and should not be listed.
+       [sbrodie: ... except if it's an IPC share, I've decided.  Also
+       we store the comments too for *lanman:lmls to display.  Why is there
+       a mystical word in the returned param block which is subtracted from
+       the offset field? Dunno, but SAMBA does it and Windows 98 needs it.]
     */
     int shrtype = getword(p+14);
+    int commoffset = getword(p+16);
+    char *comment = commoffset ? ((char *) TP.data_out_buf + commoffset - co) : 0;
 
-    if ( check_hidden( (char *)p) )
+    if ( shrtype == SHR_IPC || check_hidden( (char *)p) )
     {
       if ( shrtype == SHR_DISK )
-        Omni_AddInfo ( OAI_DISK, server, (char *)p );
+        Omni_AddInfo ( OAI_DISK, server, (char *)p, comment );
       else if ( shrtype == SHR_PRINTER )
-        Omni_AddInfo ( OAI_PRINTER, server, (char *)p );
+        Omni_AddInfo ( OAI_PRINTER, server, (char *)p, comment );
+      else if ( shrtype == SHR_IPC )
+        Omni_AddInfo ( OAI_IPC, server, (char *)p, comment );
+      else if ( shrtype == SHR_COMM )
+        Omni_AddInfo ( OAI_DEVICE, server, (char *)p, comment );
     }
     p += 20;
   }
@@ -222,6 +235,7 @@ static err_t RPC_EnumServersOnConnection ( char drv, char *domain )
 {
   err_t res;
   BYTE *p;
+  int co;
   int i;
 
   /* NetServerEnum2 */
@@ -246,6 +260,8 @@ static err_t RPC_EnumServersOnConnection ( char drv, char *domain )
   if ( getword(p) != 0 )   /* API return code; 0 = success */
     return ERPCERROR;
 
+  co = getword(p+2);
+
   i = getword(p+4);        /* Number of records returned */
   if ( i*26 > TP.data_out_len )  /* Silly values! */
     return EDATALEN;
@@ -259,8 +275,10 @@ static err_t RPC_EnumServersOnConnection ( char drv, char *domain )
     /* p is the start of the record. The first 16 bytes
        are a server name + null termination.
     */
+    int commoffset = getword(p+22);
+    char *comment = commoffset ? ((char *) TP.data_out_buf + commoffset - co) : 0;
 
-    Omni_AddInfo ( OAI_SERVER, (char *)p, NULL );
+    Omni_AddInfo ( OAI_SERVER, (char *)p, comment, NULL );
     p += 26;
   }
 
@@ -282,7 +300,7 @@ err_t RPC_EnumerateShares ( char *server  )
   if ( res != OK )
     return debug_err( res, "(EnumShares) could not log on to", server );
 
-  Omni_AddInfo ( OAI_SERVER, server, SMB_GetConnInfo(drv, GCI_SERVERINFO) );
+  Omni_AddInfo ( OAI_SERVER, server, SMB_GetConnInfo(drv, GCI_SERVERINFO), NULL );
 
   res = RPC_EnumSharesOnConnection ( drv, server );
 
