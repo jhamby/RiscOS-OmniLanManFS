@@ -40,6 +40,7 @@ RM      = remove
 MODSQZ  = modsqz
 WIPE    = -wipe
 CD	= dir
+RESGEN  = resgen
 
 
 CPFLAGS = ~cfr~v
@@ -64,27 +65,28 @@ INETLIB   = TCPIPLibs:o.inetlibzm
 SOCKLIB   = TCPIPLibs:o.socklibzm
 UNIXLIB   = TCPIPLibs:o.unixlibzm
 DEBUGLIB  = C:DebugLib.o.DebugLibZM
+ASMUTILS  = C:AsmUtils.o.AsmUtilsZM
 
 
 
 OBJS      = LanMan.o Omni.o Logon.o CoreFn.o Printers.o NameCache.o \
-            Xlate.o Interface.o RMInfo.o buflib.o Transact.o \
+            Xlate.o Interface.o buflib.o Transact.o \
             LLC.o NetBIOS.o SMB.o Errors.o Attr.o RPC.o NBIP.o Stats.o LanMan_MH.o
 
 ROM_OBJS  = or.LanMan or.Omni or.Logon or.CoreFn or.Printers or.NameCache \
-            or.Xlate or.buflib  Interface.o RMInfo.o Errors.o or.Transact \
+            or.Xlate or.buflib  Interface.o Errors.o or.Transact \
             or.LLC or.NetBIOS or.SMB or.Attr or.RPC or.NBIP or.Stats LanMan_MH.o 
 
 #DBG_OBJS  = od.LanMan od.Omni od.Logon od.CoreFn od.Printers od.NameCache \
-#            od.Xlate od.buflib  Interface.o RMInfo.o Errors.o o.Transact \
+#            od.Xlate od.buflib  Interface.o Errors.o o.Transact \
 #            od.LLC od.NetBIOS od.SMB od.Attr od.RPC od.NBIP od.Stats LanMan_MH.o 
 
 #DBG_OBJS  = od.LanMan od.Omni od.Logon od.CoreFn od.Printers od.NameCache \
-#            od.Xlate od.buflib Interface.o RMInfo.o Errors.o od.Transact \
+#            od.Xlate od.buflib Interface.o Errors.o od.Transact \
 #            o.LLC o.NetBIOS od.SMB o.Attr od.RPC od.NBIP od.Stats LanMan_MH.o 
 
 DBG_OBJS  = od.LanMan o.Omni o.Logon o.CoreFn o.Printers o.NameCache \
-            o.Xlate o.buflib Interface.o RMInfo.o Errors.o o.Transact \
+            o.Xlate o.buflib Interface.o Errors.o o.Transact \
             o.LLC o.NetBIOS od.SMB o.Attr o.RPC o.NBIP o.Stats LanMan_MH.o 
 
 
@@ -93,7 +95,7 @@ OBJSI     = i.LanMan i.Omni i.Logon i.CoreFn i.Printers i.NameCache \
             i.LLC i.NetBIOS i.SMB i.Attr i.RPC i.NBIP i.Stats
 
 OBJSINST  = LanMan_MH.o inst.LanMan inst.Omni inst.Logon inst.CoreFn inst.Printers \
-            inst.Xlate inst.buflib Interface.o RMInfo.o Errors.o inst.Transact\
+            inst.Xlate inst.buflib Interface.o Errors.o inst.Transact\
             inst.NameCache\
             inst.LLC inst.NetBIOS inst.SMB inst.Attr inst.RPC inst.NBIP inst.Stats 
 
@@ -130,6 +132,11 @@ dirs:
 #
 rom: ${ROM_MODULE}
 	@echo ${COMPONENT}: rom module built
+
+resources:
+	${MKDIR} ${RESDIR}.${COMPONENT}
+	${CP} Sprites ${RESDIR}.${COMPONENT}.Sprites  ${CPFLAGS}
+	@echo ${COMPONENT}: resource files copied
 
 preprocess: ${OBJSI} i.dirs
 	@echo ${COMPONENT}: preprocess build complete
@@ -175,13 +182,13 @@ clean:
 #
 ${RAM_MODULE}: ${OBJS} o.dirs
 	${MKDIR} rm
-	${LD} -o $@ -rmf ${OBJS} ${UNIXLIB} ${INETLIB} ${SOCKLIB} ${CLIB}
+	${LD} -o $@ -rmf ${OBJS} ${UNIXLIB} ${INETLIB} ${SOCKLIB} ${CLIB} ${ASMUTILS}
 	${MODSQZ} $@
 	Access $@ RW/R
 
 ${DBG_MODULE}: ${DBG_OBJS} o.dirs
 	${MKDIR} rm
-	${LD} -o $@ -rmf ${DBG_OBJS} ${UNIXLIB} ${INETLIB} ${SOCKLIB} ${DEBUGLIB} ${CLIB}
+	${LD} -o $@ -rmf ${DBG_OBJS} ${UNIXLIB} ${INETLIB} ${SOCKLIB} ${DEBUGLIB} ${CLIB} ${ASMUTILS}
 	${MODSQZ} $@
 
 #
@@ -189,7 +196,7 @@ ${DBG_MODULE}: ${DBG_OBJS} o.dirs
 #
 ${ROM_MODULE}: ${ROM_OBJS} ${UNIXLIB} ${INETLIB} ${SOCKLIB} o.dirs
 	${MKDIR} aof
-	${LD} -o $@ -aof ${ROM_OBJS} ${ROMCSTUBS} ${UNIXLIB} ${INETLIB} ${SOCKLIB}
+	${LD} -o $@ -aof ${ROM_OBJS} ${ROMCSTUBS} ${UNIXLIB} ${INETLIB} ${SOCKLIB} ${ASMUTILS}
 	
 #
 # Final link for the ROM Image (using given base address)
