@@ -30,7 +30,7 @@ DBG_MODULE = rm.${COMPONENT}D
 #
 # Generic options:
 #
-MKDIR   = cdir
+MKDIR   = mkdir -p
 AS      = objasm
 CC      = cc
 CMHG    = cmhg
@@ -117,6 +117,13 @@ LanMan_MH.h: LanMan_MH.o
 #
 all: ${RAM_MODULE}
 	@echo ${COMPONENT}: all complete
+
+install: ${RAM_MODULE} dirs
+	${CP} ${RAM_MODULE} ${INSTDIR}.${COMPONENT} ${CPFLAGS}
+	@echo ${COMPONENT}: all complete
+
+dirs:
+	${MKDIR} ${INSTDIR}
 
 #
 # RISC OS ROM build rules:
