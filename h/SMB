@@ -219,6 +219,8 @@ extern char * SMB_GetConnInfo ( char drvlettr, int type );
 /* Test if we're connected to a given server */
 extern bool SMB_ConnectedTo ( char *server );
 
+/* Implement idle out protection for broken Microsoft servers */
+extern void SMB_AntiIdle ( void );
 
 
 /* Startup/shutdown */

@@ -26,6 +26,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <ctype.h>
+#include <locale.h>
 #include <string.h>
 
 #include "kernel.h"
@@ -72,6 +73,9 @@ enum {
         LMInitState_FullyInited,
         LMInitState_Boot
 };
+
+static void startcallbacks(void);
+static void stopcallbacks(void);
 
 static _kernel_oserror *LM_init_phase_2(void);
 
@@ -178,13 +182,10 @@ static void LM_Undeclare ( void )
 
 /* ------------------ */
 
-_kernel_oserror * LM_Finalise (int fatal, int podule, void *pw)
+static void LM_GracefulClosedown(void)
 {
-  debug0("Finalise\n");
-  (void) fatal;
-  (void) podule;
-  (void) pw;
   if (LM_Vars.initialised == LMInitState_FullyInited) {
+    stopcallbacks();
     Omni_Shutdown();
     OmniS_ResourceShutdown();
     Prn_Shutdown();
@@ -193,7 +194,16 @@ _kernel_oserror * LM_Finalise (int fatal, int podule, void *pw)
     Buf_Shutdown();
     LM_Vars.initialised = LMInitState_PreInit;
   }
+}
 
+_kernel_oserror * LM_Finalise (int fatal, int podule, void *pw)
+{
+  debug0("Finalise\n");
+  (void) fatal;
+  (void) podule;
+  (void) pw;
+
+  LM_GracefulClosedown();
   LM_Undeclare();
   return NULL;
 }
@@ -294,15 +304,67 @@ static _kernel_oserror *Cmd_LANMAN ( const char *args )
 }
 
 /* --------------------- */
+
+#if 0
+static char *(LM_local_num)(char *buf)
+{
+  char *sep, *map, *space = buf;
+  if (_swix(Territory_ReadSymbols, _INR(0,1)|_OUT(0), -1, 1, &sep)) return buf;
+  if (_swix(Territory_ReadSymbols, _INR(0,1)|_OUT(0), -1, 2, &map)) return buf;
+
+  while (space && *sep) {
+    space = strchr(space, ' ');
+    if (space) *space = *sep;
+  }
+  return buf;
+}
+#endif
+
 static _kernel_oserror *Cmd_FREE ( const char *args )
 {
-  (void) args;
-  printf("Not immplemented yet\n");
+  _kernel_swi_regs r;
+  _kernel_oserror *e;
+  int values[6];
+  char *argv[1];
+
+  if (GetArgs(args, argv, sizeof(argv)/sizeof(*argv)) == 0)
+    argv[0] = getenv("FileSwitch$" FilingSystemName "$CSD");
+
+  if (argv[0] == NULL)
+    return Xlt_Error( EBADDRV );
+
+  r.r[0] = 4; /* 64-bit free space - will not fail! */
+  r.r[1] = Our_FS_Number;
+  r.r[2] = (int) values;
+  r.r[3] = (int) argv[0];
+  e = Omni_FreeOp_SWI(&r);
+
+  if (e == NULL) {
+    if (values[3] == 0 && values[5] == 0) {
+      printf("Bytes free &%08x\n", values[2] );
+      if (values[4] != -1) {
+        printf("Bytes used &%08x\n", values[4] );
+      }
+      else {
+        printf("Bytes used unavailable\n");
+      }
+    }
+    else {
+      printf("Bytes free &%08x%08x\n", values[3], values[2] );
+      if (values[4] != -1) {
+        printf("Bytes used &%08x%08x\n", values[5], values[4] );
+      }
+      else {
+        printf("Bytes used unavailable\n");
+      }
+    }
+  }
+
 #ifdef TRACE
   module_printf(NULL);
 #endif
 
-  return NULL;
+  return e;
 }
 
 /* --------------------- */
@@ -915,7 +977,9 @@ void LM_Boot(void)
 
   if ( strlen(fs_name) == 0 )
   {
-    printf("Auto-boot: server name has not been set...\n");
+    if (LM_Vars.verbose) {
+      printf("Auto-boot: server name has not been set...\n");
+    }
     return;
   }
 
@@ -941,6 +1005,7 @@ void LM_Boot(void)
     printf("  Error during boot: %s\n", Xlt_Error(res)->errmess);
   }
 }
+
 
 /* ------------------------------- */
 
@@ -1052,7 +1117,7 @@ static _kernel_oserror *LM_init_phase_2(void)
   }
 #endif
 
-  /*atexit(LM_Finalise); Somebody appears to have a lack of confidence in CMHG..? */
+  startcallbacks();
 
   /* We have now managed to fully initialise everything that we need - whee! */
   LM_Vars.initialised = LMInitState_FullyInited;
@@ -1134,17 +1199,51 @@ static void LM_check_driver_status(_kernel_swi_regs *r)
                 debug0("Ding!  This was our interface\n");
 		if (r->r[2] == 0) {
 		        if (LM_Vars.initialised ==  LMInitState_FullyInited) {
-		                LM_Finalise(0,0,0);
-		                LM_Declare();
+                        	LM_GracefulClosedown();
 		        }
 	                LM_init_phase_2();
 		}
 		else if (r->r[2] == 1) {
-	                LM_Finalise(0,0,0);
-	                LM_Declare();
+		        LM_GracefulClosedown();
 		}
         }
 }
+
+#ifdef TRACE
+
+static void DumpBuffer(void *ptr, int len)
+{
+        static char db[512];
+        char *p = db;
+
+        const char *membuf = ptr;
+        int i,j;
+	db[0] = '\0';
+        for (i=0; i<((len+31)&~31); ++i) {
+                if (!(i & 31)) {
+                        p += sprintf (p, "  ");
+                        if (i) for (j = i - 32; j != i; ++j) {
+                                p+=sprintf(p, "%c", (membuf[j]>=32 && membuf[j] != 0x7f) ?
+                                membuf[j] : '.');
+                        }
+                        printf("$%s\n", db);
+                        p=db+sprintf(db,"%04x: ", i);
+                }
+                if (i>=len) {
+                        p+=sprintf (p,"  ");
+                        if (3==(i & 3)) p+=sprintf (p," ");
+                }
+                else {
+                        p+=sprintf (p,"%02x", membuf[i]);
+                        if (3==(i & 3)) p+=sprintf (p," ");
+                }
+        }
+        if (i) for ( p+=sprintf (p,"  "), j = i - 32; j != i; ++j) p+=sprintf (p,"%c",
+            j>=len ? ' ' : (membuf[j]>=32 && membuf[j] != 0x7f) ?
+            membuf[j] : '.');
+        printf("$%s\n", db);
+}
+#endif
 
 /* SNB 981029 added this function to verify the contents of the Service_InternetStatus
  * service call to determine whether we were waiting for the interface to go up so
@@ -1154,22 +1253,36 @@ static void LM_check_internet_status(_kernel_swi_regs *r)
 {
         char *cp = (char *) r->r[3];
 
-	printf ("InternetStatus: %d %d %d %p %s\n", r->r[0], r->r[1], r->r[2], cp, cp);
-
 	if (r->r[0] == InternetStatus_AddressChanged) {
-	  goto testjump;
+	  if (LM_Vars.initialised != LMInitState_PreInit &&
+	      LM_Vars.initialised != LMInitState_Boot) {
+            return;
+	  }
+	  /* An interface address was set - almost certainly ours! */
 	}
+#ifdef TRACE
+	else if (r->r[0] == InternetStatus_DynamicBootReply) {
+	  DumpBuffer((void *)r->r[4], r->r[5]);
+	}
+	else if (r->r[0] == InternetStatus_DynamicBootStart) {
+	  DumpBuffer((void *)r->r[4], r->r[5]);
+	}
+#endif
+        else {
+          /* Were we actually waiting for the driver to appear */
+    	  if (LM_Vars.initialised != LMInitState_PreInit &&
+              LM_Vars.initialised != LMInitState_Boot) return;
+     	  /* Was it the right reason code? */
+	  if (r->r[0] != InternetStatus_InterfaceUpDown) return;
+	  /* Was it the right interface? */
+	  if (stricmp(LM_Vars.drivername, cp) != 0) return;
+	  /* was the interface coming up? */
+	  if (r->r[2] != 1) return;
+        }
 
-	/* Was it the right reason code? */
-	if (r->r[0] != InternetStatus_InterfaceUpDown) return;
-	/* Was it the right interface? */
-	if (stricmp(LM_Vars.drivername, cp) != 0) return;
-	/* was the interface coming up? */
-	if (r->r[2] != 1) return;
-testjump:
 	if (LM_Vars.initialised == LMInitState_FullyInited) {
-	        LM_Finalise(0,0,0);
-                LM_Declare();
+	        /* Should never happen nowadays ?? */
+	        LM_GracefulClosedown();
 	}
 	LM_init_phase_2();
 }
@@ -1226,17 +1339,71 @@ int module_printf(const char *str, ...)
 	}
 
 	++callcount;
-	if (f != NULL) {
-		fprintf(f, "(%4d) ", callcount);
+	if (*str != '$' && f != NULL) {
 		va_start(ap, str);
 		vfprintf(f, str, ap);
 		va_end(ap);
 	}
 	va_start(ap, str);
 	_swix(OS_ReadMonotonicTime, _OUT(0), inblock);
+	if (*str == '$') ++str; else
 	pbufferptr += sprintf(pbuffer + pbufferptr, "(%8d) (%4d) ", inblock[0], callcount);
 	pbufferptr += vsprintf(pbuffer + pbufferptr, str, ap);
 	if (pbufferptr > 60000) pbufferptr = 0;
 	return 0;
 }
 #endif
+
+
+/* ========== Callback code ========== */
+
+/* Callback management.  Some servers tend to idle-out connections.  This code stops
+ * that happening.
+ */
+static volatile int callbackflag = 0;
+
+_kernel_oserror *callback_handler(_kernel_swi_regs *r, void *pw)
+{
+	(void) r;
+	(void) pw;
+	if (callbackflag != 0) {
+	        debug0("Anti IdleOut Callback entered\n");
+	        SMB_AntiIdle();
+		callbackflag = 0;
+	}
+	return 0;
+}
+
+static void clearcallback(void)
+{
+	if (callbackflag != 0) {
+		(void) _swix(OS_RemoveCallBack, _INR(0,1), callback_entry, LM_pw);
+		callbackflag = 0;
+	}
+}
+
+_kernel_oserror *callevery_handler(_kernel_swi_regs *r, void *pw)
+{
+        (void) r;
+	if (callbackflag == 0) {
+		if (_swix(OS_AddCallBack, _INR(0,1), callback_entry, pw) == NULL) {
+			callbackflag = 1;
+			debug0(Module_Title ": (setcallback) just set a callback\n");
+		}
+	}
+	return 0;
+}
+
+static void startcallbacks(void)
+{
+        /* Remember that as the SMB_AntiIdle routine rotates through all the shares,
+         * each share will only be every pinged MAX_SHARES * 100 * 45 seconds.
+         */
+        (void) _swix(OS_CallEvery, _INR(0,2), 100*45, callevery_entry, LM_pw);
+}
+
+static void stopcallbacks(void)
+{
+        (void) _swix(OS_RemoveTickerEvent, _INR(0,1), callevery_entry, LM_pw);
+        clearcallback();
+}

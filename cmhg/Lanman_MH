@@ -43,6 +43,9 @@ swi-decoding-table:    LanMan,
    OmniOp, FreeOp, NameOp, Transact, LogonOp
 
 
+generic-veneers: callback_entry/callback_handler,	; for anti-idleout callback
+                 callevery_entry/callevery_handler
+
 vector-handlers: ReceiveFn TickerFn LLC_CallbackFn,
 	NBIP_CallbackFn/NBIP_CallbackFn_handler_ctrl,
  	EventFn

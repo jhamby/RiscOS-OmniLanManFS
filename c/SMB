@@ -229,6 +229,7 @@ typedef struct
 /* And now the sub-commands for SMBtrans2 */
 #define TRANSACT2_FINDFIRST   0x01
 #define TRANSACT2_FINDNEXT    0x02
+#define TRANSACT2_QUERYFSINFORMATION 0x03
 #define TRANSACT2_QUERYPATHINFORMATION 0x05
 #endif
 
@@ -688,8 +689,7 @@ static err_t Do_SMBResponse(hSHARE hS, int cmd, BUFCHAIN *ppB_out )
   return OK;
 }
 
-
-static err_t Do_SMB ( hSHARE hS, int cmd, int wct_in, BUFCHAIN pB_in,
+static err_t Do_SMB_threadsafe ( hSHARE hS, int cmd, int wct_in, BUFCHAIN pB_in,
                       BUFCHAIN *ppB_out )
 {
 #ifdef RETRYONERROR
@@ -781,6 +781,23 @@ do_smb_retry:
     return res;
 
   return Do_SMBResponse(hS, cmd, ppB_out);
+}
+
+static err_t Do_SMB ( hSHARE hS, int cmd, int wct_in, BUFCHAIN pB_in,
+                      BUFCHAIN *ppB_out )
+{
+  static volatile int threaded = 0;
+
+  if (threaded) {
+    return EBOOTREENTRY;
+  }
+  else {
+     err_t res;
+     ++threaded;
+     res = Do_SMB_threadsafe(hS, cmd, wct_in, pB_in, ppB_out);
+     --threaded;
+     return res;
+  }
 }
 
 
@@ -1435,22 +1452,6 @@ static hSHARE GetShare ( const char *filename, err_t *pRes )
 
 /* ---------------------------- */
 
-/* SMB_IsLongNameFS() returns true if the path refers to a share which is using long
-    filenames.  Xlate.c needs to know this in order to determine which set of file
-    mappings is to be used.
- */
-bool SMB_IsLongNameFS( const char * path)
-{
-  err_t e;
-  hSHARE hS;
-
-  hS = GetShare(path, &e);
-  if (e == OK && (hS->t2flags & T2FLAGS_LONGNAMES)) return true;
-  return false;
-}
-
-/* ---------------------------- */
-
 /* GetShareNoConn() is used to validate a drive letter when
     we aren't bothered if the connection is lost (e.g. for
     the GetConnInfo or DisconnectShare calls)
@@ -1464,6 +1465,23 @@ static hSHARE GetShareNoConn ( uint letter )
 
   return NULL;
 }
+
+
+/* ---------------------------- */
+
+/* SMB_IsLongNameFS() returns true if the path refers to a share which is using long
+    filenames.  Xlate.c needs to know this in order to determine which set of file
+    mappings is to be used.
+ */
+bool SMB_IsLongNameFS( const char * path)
+{
+  hSHARE hS;
+
+  hS = GetShareNoConn(*path);
+  if (hS != NULL && (hS->t2flags & T2FLAGS_LONGNAMES)) return true;
+  return false;
+}
+
 
 /* --------------------- */
 
@@ -2092,6 +2110,42 @@ err_t SMB_SetAttribs ( char *filename, DOS_ATTRIBS *pAttr )
 
 /* --------------------------- */
 
+#ifdef LONGNAMES
+static err_t SMB_GetFreeSpaceX2 ( hSHARE hS, struct disk_size_response *pDSR  )
+{
+  err_t res;
+  static struct TransactParms tp;
+  BYTE *p;
+  DWORD sectors_per_alloc, total_allocs, total_avail_allocs;
+  WORD bytes_per_sector;
+
+  Transact_init(&tp, 1 * 2);
+  Transact_addsetupword(&tp, TRANSACT2_QUERYFSINFORMATION);
+  Transact_addword(&tp, 1);  /* information level */
+  res = SMB_Transact2(hS, &tp);
+  if (res != OK)
+    return res;
+  p = tp.data_out_buf + 4;
+  sectors_per_alloc = Transact_getlong(p), p += 4;
+  total_allocs = Transact_getlong(p), p += 4;
+  total_avail_allocs = Transact_getlong(p), p += 4;
+  bytes_per_sector = Transact_getword(p);
+
+  pDSR->blksize = bytes_per_sector * sectors_per_alloc;
+  pDSR->freeblks =  total_avail_allocs;
+  pDSR->totalblks = total_allocs;
+
+  /*
+  debug2("S/A %10d %#08x\n", sectors_per_alloc, sectors_per_alloc);
+  debug2("T A %10d %#08x\n", total_allocs, total_allocs);
+  debug2("TAA %10d %#08x\n", total_avail_allocs, total_avail_allocs);
+  debug2("B?S %10d %#08x\n", (DWORD) bytes_per_sector, (DWORD) bytes_per_sector);
+  */
+
+  return OK;
+}
+#endif
+
 err_t SMB_GetFreeSpace ( char lettr, struct disk_size_response *pDSR  )
 {
   err_t res;
@@ -2100,6 +2154,13 @@ err_t SMB_GetFreeSpace ( char lettr, struct disk_size_response *pDSR  )
   hS = GetShare (&lettr, &res);
   if ( hS == NULL )
     return res;
+
+#ifdef LONGNAMES
+  if (hS->t2flags & T2FLAGS_LONGNAMES)
+  {
+    return SMB_GetFreeSpaceX2(hS, pDSR);
+  }
+#endif
 
   res = Do_SMB ( hS, SMBdskattr, 0, NULL, NULL );
 
@@ -3126,5 +3187,30 @@ err_t SMB_Shutdown ( void )
     SMB_DeleteShare ( 'A'+i );
 
   return OK;
+}
+
+/* ---------------------------- */
+
+/* SMB_AntiIdle() is used to stop idle-outs on shares.
+ * Each call, it moves onto the next share in order to
+ * "ping" the server to keep it awake.
+ */
+void SMB_AntiIdle ( void )
+{
+  static uint letter = -1;
+  hSHARE hS;
+
+  ++letter;
+  if (letter >= MAX_SHARES) letter = 0;
+  hS = GetShareNoConn('A' + letter);
+  if (hS == NULL) {
+    return;
+  }
+  else {
+    char echodat[4];
+    sprintf(echodat, "%c:\\", 'A' + letter);
+    debug1("Anti idle-out measure: %s\n", echodat);
+    (void) SMB_ChkPath(echodat);
+  }
 }
 
