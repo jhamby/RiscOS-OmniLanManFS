@@ -1828,8 +1828,10 @@ static err_t SMB_GetAttribsX2 (hSHARE hS, char *filename, DOS_ATTRIBS *pAttr )
   BYTE *resb;
   static struct TransactParms tp;
 
+  debug1("SMB_GetAttribs: %s\n", filename);
   resb = NameCache_Locate(filename);
   if (resb != NULL) {
+    Transact_init(&tp, 1 * 2);           /* need to initialise tp.data_out_buf!! */
     memcpy( tp.data_out_buf, resb, 23);
     strcpy( (char *) tp.data_out_buf + 23, (char *) resb + 23);
     return Xlt_ExpandSearchEntryX2 ( tp.data_out_buf, NULL, NULL, pAttr, NULL);

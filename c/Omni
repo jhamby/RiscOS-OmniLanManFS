@@ -399,10 +399,19 @@ static void MountNameCpy ( char *d, char *s )
 
 static int ReentryCount = 0;
 
+#ifdef CHECK_ARMBOOT_EXISTS
+static err_t BootMount_check_file ( char drive )
+{
+  DOS_ATTRIBS dummy;
+
+  sprintf ( work_buf, "%c\\!ARMBOOT", drive );
+  return SMB_GetAttribs ( work_buf, &dummy );
+}
+#endif
+
 static err_t BootMount ( NAMELIST *pNLmount )
 {
   _kernel_swi_regs R;
-  DOS_ATTRIBS dummy;
   err_t res;
 
   /* Attempts to run a !ArmBoot file or applicationn, if it exists */
@@ -416,15 +425,17 @@ static err_t BootMount ( NAMELIST *pNLmount )
     }
   }
 
-  sprintf ( work_buf, "%c\\!ARMBOOT", pNLmount->u.mount.smb_lettr );
 
 #ifdef TRACE
   debug1("BootMount looking for %s\n", work_buf);
 #endif
 
   /* If no such file or directory, we can stop now */
-  if ( SMB_GetAttribs ( work_buf, &dummy ) != OK )
+#ifdef CHECK_ARMBOOT_EXISTS
+  /* Only works if !ARMBOOT is a directory! */
+  if (BootMount_check_file(pNLmount->u.mount.smb_lettr) != OK)
     return OK;
+#endif
 
   /* Safety check */
 
