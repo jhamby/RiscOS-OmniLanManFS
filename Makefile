@@ -72,6 +72,7 @@ LanMan_MH.h: LanMan_MH.o
 .c.i:;		$(CC) $(CFLAGS) -c -C -E $< >> $@
 .i.inst:;	$(CC) $(CFLAGS) -C++ -o $@ $<
 .cmhg.o:;   ${CMHG} ${CMHGFLAGS} -o $@ $< -d $*.h
+.cmhg.h:;   ${CMHG} ${CMHGFLAGS} -o $@ -d $<
 .s.o:;      ${AS} ${AFLAGS} $< $@
 
 #
@@ -86,6 +87,11 @@ install: ${RAM_MODULE} dirs
 
 dirs:
 	${MKDIR} ${INSTDIR}
+
+o.LanMan o.LLC o.Logon o.NBIP o.Omni: LanMan_MH.h
+or.LanMan or.LLC or.Logon or.NBIP or.Omni: LanMan_MH.h
+od.LanMan od.LLC od.Logon od.NBIP od.Omni: LanMan_MH.h
+i.LanMan i.LLC i.Logon i.NBIP i.Omni: LanMan_MH.h
 
 #
 # RISC OS ROM build rules:
