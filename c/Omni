@@ -58,7 +58,7 @@
 #include "logon.h"
 
 #include "omni.h"
-
+#include "LanMan_MH.h"
 
 #define INFO_STR_LEN 32
 /* Length of info string kept about servers & mounts */
@@ -1023,7 +1023,7 @@ err_t Omni_GetDefaultType ( char *name, int * pType_out )
   if ( !Omni_Registered )
     return ENOTPRESENT;
 
-  R.r[0] = SWI_LanMan_OmniOp; /* Client ID */
+  R.r[0] = LanMan_OmniOp; /* Client ID */
   R.r[1] = (int) name;
   R.r[2] = (int) tmpbuf;  /* We ignore the name it returns! */
   R.r[3] = (int) tmpbuf2; /* Flags string */
@@ -1268,7 +1268,7 @@ void Omni_RecheckInfo( int flags )
 
   if ( Omni_Registered )
   {
-    R.r[0] = SWI_LanMan_OmniOp; /* Client ID */
+    R.r[0] = LanMan_OmniOp; /* Client ID */
     R.r[1] = flags;  /* Enumerate servers/mounts */;
     _kernel_swi ( SWI_Omni_EnumerateMounts, &R, &R );
   }
@@ -1280,7 +1280,7 @@ static void Omni_Register(void)
 {
   _kernel_swi_regs R;
 
-  R.r[0] = SWI_LanMan_OmniOp; /* Client ID */
+  R.r[0] = LanMan_OmniOp; /* Client ID */
   R.r[1] = RC_NEEDS_USERID | RC_NEEDS_PASSWD | RC_NEEDS_MOUNTPATH |
              RC_DOES_FILES | RC_EXTN_CHAR('.') |
              RC_DOES_PRINT | RC_NEEDS_PRINTPWD;
@@ -1361,7 +1361,7 @@ void Omni_Shutdown ( void )
 
   if ( Omni_Registered )
   {
-    R.r[0] = SWI_LanMan_OmniOp;
+    R.r[0] = LanMan_OmniOp;
     _kernel_swi ( SWI_Omni_DeregisterClient, &R, &R );
     Omni_Registered = false;
   }

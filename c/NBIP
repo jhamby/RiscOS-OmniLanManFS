@@ -230,8 +230,9 @@ EXPORT err_t _NB_FormatName ( nametype_t nt, char *name, NETNAME *res )
 
   for ( i=0; i<15; i++)
   {
-    if ( name[i] <= 0x20 ) break;
-    res->b[i] = toupper(name[i]);
+    if ( name[i] < 0x20 ) break;
+    if (name[i] == '\xA0') res->b[i] = ' ';
+    else res->b[i] = toupper(name[i]);
   }
 
   while (i<15)
@@ -246,11 +247,16 @@ EXPORT err_t _NB_FormatName ( nametype_t nt, char *name, NETNAME *res )
 EXPORT nametype_t _NB_DecodeName ( NETNAME *pnn, char *buf )
 {
   BYTE *p = pnn->b;
+  char *last_nonsp = buf;
 
-  while ( *p > 0x20 )
+  while ( *p >= 0x20 )
     *buf++ = *p++;
 
   *buf = 0;
+
+  while (--buf > last_nonsp) {
+    if (*buf == ' ') *buf = 0;
+  }
 
   return (nametype_t) (pnn->b[15]);
 }

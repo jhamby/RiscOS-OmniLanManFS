@@ -42,6 +42,8 @@
 #include "logon.h"
 #include "xlate.h"
 
+#include "LanMan_MH.h"
+
 /* ----------------------------------- */
 
 static void SetPassword ( char * pwd )
@@ -252,20 +254,14 @@ err_t Lgn_Logoff ( void )
 
 void Lgn_Register(void)
 {
-  _kernel_swi_regs R;
-
-  R.r[0] = SWI_LanMan_LogonOp; /* Client ID */
-  R.r[1] = RC_LOGON_TYPE |  RC_NEEDS_AUTHSERV |
-           RC_NEEDS_USERID | RC_NEEDS_PASSWD ;
-
-  R.r[2] = (int) "lmlgni";
-  R.r[3] = (int) "LAN Manager";       /* Needs to be reasonably short. NAS */
-  R.r[4] = (int) "LanManFS Logon bit"; /* Info string - shouldn't appear*/
-  R.r[5] = 0; /* Site ID */
-  R.r[6] = (int) "LanMan+"; /* Needs to be unique from LanMan FS name. NAS */
-
-  _kernel_swi( SWI_Omni_RegisterClient, &R, &R );
-
+  (void) _swix( SWI_Omni_RegisterClient, _INR(0,6),
+  	LanMan_LogonOp, /* Client ID */
+  	RC_LOGON_TYPE |  RC_NEEDS_AUTHSERV | RC_NEEDS_USERID | RC_NEEDS_PASSWD,
+  	"lmlgni",
+  	"LAN Manager",        /* Needs to be reasonably short. NAS */
+  	"LanManFS Logon bit", /* Info string - shouldn't appear*/
+  	0, /* Site ID */
+  	"LanMan+"); /* Needs to be unique from LanMan FS name. NAS */
 }
 
 /* ---------------------------------------- */
