@@ -344,8 +344,6 @@ static err_t Func_ReadFreeSpace ( int sixtyfourbit, char *name, int *R )
   _kernel_oserror *err;
   struct disk_size_response dsr;
 
-printf("Read free space\n");
-
   r.r[0] = 2;
   r.r[2] = (int) &dsr;
   r.r[3] = (int) name;

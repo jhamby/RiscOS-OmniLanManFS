@@ -173,7 +173,7 @@ Err19  DCD Err_Base+19
 
        ALIGN
 Err20  DCD Err_Base+&B4
-       DCB "Access not allowed", 0
+       DCB "Access denied", 0
 
        ALIGN
 Err21  DCD Err_Base+21

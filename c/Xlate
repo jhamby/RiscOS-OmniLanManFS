@@ -47,7 +47,7 @@
 /* Magic value used to indicate an incomplete file - used by the Filer,
  * for example, when writing a new file
  */
-static const int deaddead = 0xDEADDEAD;
+static const int deaddead = (int)0xDEADDEAD;
 
 /* For the moment, untyped files have these invented load/exec addresses.
  * They ensure that if such a file is *Load'ed or *Run'ed, then a data
@@ -1252,7 +1252,16 @@ err_t Xlt_SplitLeafnameX2 ( char *leafname, RISCOS_ATTRIBS *pRA,
      {
      /* No ",ttt" was found,try the mimemap for ".ext" */
      leafname = oldname;
-     term = strchr(leafname, '/');
+     /* This function can get called with "A:\dosname.txt" paths or "riscosname/txt" leafs */
+     if (leafname[1] == ':')
+        {
+        term = strrchr(leafname, '.');  /* strrchr catches names like "file.tar.gz" */
+        }
+     else
+        {
+        term = strrchr(leafname, '/');  /* strrchr catches names like "file/tar/gz" */
+        }
+
      if (term != NULL)
         {
         /* A dot was found so try to lookup the dos style extension */

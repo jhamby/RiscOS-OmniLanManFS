@@ -1765,7 +1765,7 @@ err_t SMB_Rename ( char *oldpath, char *newpath )
   if ( pB == NULL )
     return EOUTOFMEM;
 
-  SMB_TxWords[0] = ATTR_NORM;
+  SMB_TxWords[0] = ATTR_NORM | ATTR_DIR; /* Permit both file and dir renaming */
 
   return Do_SMB ( hS, SMBmv, 1, pB, NULL );
 }

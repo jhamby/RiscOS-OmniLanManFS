@@ -209,12 +209,12 @@ static void LM_GracefulClosedown(void)
 {
   if (LM_Vars.initialised == LMInitState_FullyInited) {
     stopcallbacks();
-    Omni_Shutdown();
+    SMB_Shutdown();            /* Dismounts all SMB mounts first as */
+    Omni_Shutdown();           /* Omni_Shutdown zeros the Mounts lists */
     OmniS_ResourceShutdown();
-    Prn_Shutdown();
-    SMB_Shutdown();
-    NB_Shutdown();
-    Buf_Shutdown();
+    Prn_Shutdown();            /* Free print jobs */
+    NB_Shutdown();             /* Also calls LLC_Shutdown */
+    Buf_Shutdown();            /* Tell MBufManager we're done */
     LM_Vars.initialised = LMInitState_PreInit;
   }
 }
@@ -224,12 +224,14 @@ _kernel_oserror * LM_Finalise (int fatal, int podule, void *pw)
   debug0("Finalise\n");
   (void) fatal;
   (void) podule;
-  (void) pw;
 
-  lanman_announce_lanmanfs(protocolstatus_TERMINATING, pw);
-
+  /* Dismount all (NB.Before announcing we're done with the protocol) */
   LM_GracefulClosedown();
+  /* Tell the DCI driver the NetBEUI protocol is gone */
+  lanman_announce_lanmanfs(protocolstatus_TERMINATING, pw);
+  /* Now mark this filing system as gone */
   LM_Undeclare();
+
   return NULL;
 }
 
@@ -1259,6 +1261,7 @@ static void LM_check_protocol_status(_kernel_swi_regs *r)
    * Inform our transport layer if we find it was Internet leaving.
    */
   const char *proto = (char *) r->r[4];
+
   if (r->r[2] == protocolstatus_TERMINATING && strcmp(proto, "Internet") == 0) {
     NB_InternetGone();
   }

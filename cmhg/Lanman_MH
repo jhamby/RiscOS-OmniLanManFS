@@ -91,9 +91,9 @@ command-keyword-table: LM_Command
         LMNameMode(min-args:1, max-args:1,
     help-text: "*LMNameMode sets the way LanManFS capitalises names on DOS shares\r"
                "It does not affect long filename shares\r"
-               "Syntax:\t*LMNameMode  [0|1|2]",
+               "Syntax:\t*LMNameMode  0 | 1 | 2",
     fs-command:,
-    invalid-syntax: "Syntax:\t*LMNameMode  [0|1|2]\r", ),
+    invalid-syntax: "Syntax:\t*LMNameMode  0 | 1 | 2\r", ),
 
         LMLogoff(min-args:0, max-args:0,
     help-text: "*LMLogoff clears the workgroup and default user settings "
@@ -131,16 +131,16 @@ command-keyword-table: LM_Command
 
         LMTransport(min-args:0, max-args:1,
     help-text: "*Configure LMTransport sets whether LanManFS should use "
-               "NetBEUI or TCP/IP as transport protocol\rSyntax:\t*Configure LMTransport [IP|NetBEUI]",
-    invalid-syntax: "Syntax:\t*Configure LMTransport [IP|NetBEUI]\r",
+               "NetBEUI or TCP/IP as transport protocol\rSyntax:\t*Configure LMTransport IP | NetBEUI",
+    invalid-syntax: "Syntax:\t*Configure LMTransport IP | NetBEUI\r",
     configure:,
     status:,
                  ),
 
         LMNameServer(min-args:0, max-args:1,
     help-text: "*Configure LMNameServer <IP address> sets the address of a "
-               "NetBIOS over IP nameserver for LanManFS to use\rSyntax:\t*Configure LMNameServer [IP address]",
-    invalid-syntax: "Syntax:\t*Configure LMNameServer [IP address]\r",
+               "NetBIOS over IP nameserver for LanManFS to use\rSyntax:\t*Configure LMNameServer <IP address>",
+    invalid-syntax: "Syntax:\t*Configure LMNameServer <IP address>\r",
     configure:,
     status:,
                  ),
