@@ -19,5 +19,5 @@
 #define Module_ComponentPath            "RiscOS/Sources/Networking/Omni/Protocols/LanManFS"
 
 #define Module_FullVersion              "2.28"
-#define Module_HelpVersion              "2.28 (06 Jan 2004)"
+#define Module_HelpVersion              "2.28 (07 Jan 2004)"
 #define Module_LibraryVersionInfo       "2:28"
