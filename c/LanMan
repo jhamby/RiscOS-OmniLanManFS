@@ -62,7 +62,7 @@
 /* Added SNB 980224 */
 extern char *LM_Status(void);
 
-#define DEFAULT_ETHER_TYPE 	"eh0"
+#define DEFAULT_ETHER_TYPE 	"_default_"
 
 typedef void (*pfnShutdown)(void);
 typedef void (*pfnTransportInit)(void);
@@ -807,9 +807,7 @@ void LM_Service ( int service_number, _kernel_swi_regs *r, void *pw )
       break;
 
     case Service_DCIDriverStatus:
-      if (NB_InitedTransport == NB_NetBEUI_Setup) {
-          LM_check_driver_status(r);
-      }
+      LM_check_driver_status(r);
       break;
 
     case Service_InternetStatus:
@@ -1217,7 +1215,18 @@ static void LM_check_driver_status(_kernel_swi_regs *r)
 
         printf ("We are looking for driver `%s' - got `%s'\n", LM_Vars.drivername,
         	if_name);
+
 #endif
+        if (strcmp(LM_Vars.drivername, DEFAULT_ETHER_TYPE) == 0) {
+                if (if_name[0] != 'l') {
+                	(void) strncpy(LM_Vars.drivername, if_name, NAME_LIMIT);
+                }
+        }
+
+        if (NB_InitedTransport != NB_NetBEUI_Setup) {
+                return;
+        }
+
 
         if (stricmp(LM_Vars.drivername, if_name) != 0) {
                 /* printf("Not interested\n"); */

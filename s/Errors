@@ -337,9 +337,10 @@ Err60  DCD Err_Base+60
        ALIGN
 Err61  DCD Err_Base+61
        DCB "User account has been disabled", 0
+       ALIGN
 Err62  DCD Err_Base+62
        DCB "LanManFS in use", 0
-
+       ALIGN
 
      END
 
