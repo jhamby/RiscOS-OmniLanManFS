@@ -168,12 +168,23 @@ static err_t Dir_CallbackFn ( BYTE *entry, int format, void *pw )
 #ifdef LONGNAMES
   /* Insert check for . and .. here */
   if (format == 1) {
-    if (entry[23] == '.') return OK;
+    if (entry[23] == '.') {
+      if (entry[22] == 1 || entry[24] == '\0') {
+        return OK;
+      }
+      if (entry[24] == '.' && (entry[22] == 2 || entry[25] == '\0')) {
+        return OK;
+      }
+    }
   }
   else
 #endif
-  if ( entry[9] == '.' )  /* Ignore '.' and '..' directories */
-    return OK;
+  if ( entry[9] == '.' ) {
+    /* Ignore '.' and '..' directories */
+    if (entry[10] == '.' && entry[10] == '\0' || entry[11] == '\0') {
+      return OK;
+    }
+  }
 
 //  debug3 ("Entry: current %d req %d count %d\n",
 //            RD_CurOffset, RD_ReqOffset, RD_ReqCount );
