@@ -148,12 +148,20 @@ static struct sockaddr *NBNS_NameServer = NULL; /* IP address of name server */
 /* NetBIOS name basics ==================================== */
 
 #ifdef DEBUG
-static void debug_name ( NETNAME *pnn )
+static char *debug_name_buf ( void *pnn_v, char *buf )
 {
-  char lclbuf[16];
-  memcpy (lclbuf, pnn, 16);
-  lclbuf[15] = 0;
-  debug2("<%s[%02X]>", lclbuf, pnn->b[15]);
+  BYTE *pnn = pnn_v;
+  char lbuf[16];
+  memcpy(lbuf, pnn, 16);
+  lbuf[15] = '\0';
+  sprintf(buf, "<%s[%02X]>", lbuf, pnn[15]);
+  return buf;
+}
+
+static char *debug_name ( void *pnn )
+{
+  static char lclbuf[32];
+  return debug_name_buf(pnn, lclbuf);
 }
 
 static void debug_scope ( BYTE *src )
@@ -567,6 +575,8 @@ static BYTE *CreateNBNSheader(BYTE *ptr, int opcode, int trn_ID )
 
 static void SendDatagram ( struct sockaddr *pDst, BYTE *start, BYTE *end )
 {
+  dprintf((__FILE__, "SendDatagram ID:&%04x to %s\n", GetShort(start),
+    inet_ntoa(((struct sockaddr_in *) pDst)->sin_addr)));
   sendto ( NBNS_Socket, start, end-start, 0, pDst,
                sizeof(struct sockaddr_in) );
 }
@@ -621,7 +631,9 @@ static void SendFindRequest ( struct sockaddr *pDst, NAME_ENTRY *pNE )
 #ifdef DEBUG
   {
           struct sockaddr_in *sin = (void *) pDst;
-          debug1("SendFindRequest -> [%s]\n", inet_ntoa(sin->sin_addr));
+          debug2("SendFindRequest (%s)-> [%s]\n",
+            debug_name(&(pNE->nn)),
+            inet_ntoa(sin->sin_addr));
   }
 #endif
   SendDatagram ( pDst, DatagramBuf, p );
@@ -636,6 +648,8 @@ static void SendStatusRequest ( struct sockaddr *pDst, NAME_ENTRY *pNE )
   p = CreateNBNSheader(DatagramBuf,NAME_STATUS_REQUEST,++NBNS_RequestCount);
   p = PutNetname( p, &(pNE->nn) );  /* Query section */
   p = PutLong (p, INET_STATUS_TAG );
+
+  dprintf((__FILE__, "SendStatusRequest (%s)\n", debug_name(&(pNE->nn))));
 
   SendDatagram ( pDst, DatagramBuf, p );
 }
@@ -742,7 +756,7 @@ static NAME_ENTRY *FindNBNSName ( BYTE *src, BYTE *buf_start)
     src+=2;
   }
 
-  debug0("Name="); debug_name(&netname); debug_scope (src); debug0("\n");
+  debug1("Name=%s", debug_name(&netname)); debug_scope (src); debug0("\n");
 
   /* Now check NetBIOS scope ID */
 
@@ -991,9 +1005,13 @@ static void NameStatusReply ( struct NBNS_packet *pNBP,
   debug3("Status: %d names, type %Xh, %d spc\n", n, pSR->nt_search,
                    pSR->spaces_left);
 
+  ddumpbuf(__FILE__, dp, n*18, 0);
+
+
   while( pSR->spaces_left > 0  && n-- > 0 )
   {
-    debug0("Found "); debug_name( (NETNAME *)dp); debug0("\n");
+    char namebuf[32];
+    dprintf((__FILE__, "Found %s\n", debug_name_buf(dp, namebuf)));
     /* dp points to a network name */
     if ( pSR->nt_search == ANY_NAME_TYPE ||
          pSR->nt_search == dp[15] )
@@ -1007,9 +1025,45 @@ static void NameStatusReply ( struct NBNS_packet *pNBP,
     }
     dp+=18;
   }
+
+  while (n-- > 0)
+  {
+    debug1("Found but ignoring %s\n", debug_name( dp ));
+    dp+=18;
+  }
 }
 
 /* ---------------------------- */
+#ifdef DEBUG
+static void debug_opc(struct NBNS_packet *p)
+{
+  static const char *statuses[16] = {
+    "OK", "FMT_ERR", "SRV_ERR", "NAM_ERR", "IMP_ERR", "RFS_ERR", "ACT_ERR", "CFT_ERR"
+  };
+  static const char *opcodes[16] = {
+    "FIND", "1", "2", "3", "4", "REGISTER", "RELEASE", "WACK", "REFRESH", "9", "10"
+  };
+  static char flags[256];
+  const char *opcode, *status, *reply;
+
+  reply = (p->opcode & OPC_REPLY) ? "Reply" : "Query";
+  *flags = '\0';
+
+  if (p->opcode & OPC_AUTHORITY) strcat(flags, "AUTH ");
+  if (p->opcode & OPC_TRUNCATED) strcat(flags, "TRUNC ");
+  if (p->opcode & OPC_REC_DESIRED) strcat(flags, "REC_DESIRED ");
+  if (p->opcode & OPC_REC_AVAIL) strcat(flags, "REC_AVAIL ");
+  if (p->opcode & OPC_BROADCAST) strcat(flags, "BROADCAST ");
+
+  opcode = opcodes[(p->opcode & OPC_OPCODE_MASK) >> 11];
+  status = (p->opcode & OPC_REPLY) ? statuses[(p->opcode & OPC_STATUS_MASK)] : "";
+
+  dprintf((__FILE__, "* %s ID:&%04x %s %s\n", reply, p->trn_id,
+    opcode?opcode:"<UNKNOWN>", status?status:"<UNKNOWN>"));
+  dprintf((__FILE__, "n_query: %d, n_answer: %d, n_auth: %d, n_add: %d\n",
+    p->n_query, p->n_answer, p->n_auth, p->n_add));
+}
+#endif
 
 static void NBNS_ProcessDatagram (
                  struct sockaddr *pFrom, BYTE *buf, int len )
@@ -1039,6 +1093,10 @@ static void NBNS_ProcessDatagram (
   NBP.buf_start = buf;
   NBP.buf_end = buf+len;
   NBP.record_ptr = buf+12;
+
+#ifdef DEBUG
+  debug_opc(&NBP);
+#endif
 
   if ( NBP.opcode & OPC_REPLY )
   {
@@ -1217,7 +1275,7 @@ static NAME_ENTRY *FindRemoteName ( NETNAME *pnn )
   NAME_ENTRY *pNE;
   struct hostent *pHE;
 
-  debug0("Find remote name "); debug_name(pnn); debug0("\n");
+  debug1("Find remote name %s\n", debug_name(pnn));
 
   /* Check name cache */
 
@@ -1432,7 +1490,7 @@ EXPORT int _NB_FindNames ( NETNAME *pnnFind,
   if ( pNE == NULL )
     return 0;
 
-  debug0("Find name "); debug_name(pnnFind); debug1(" type %Xh\n", ntFind);
+  debug2("Find name %s type %Xh\n", debug_name(pnnFind), ntFind);
 
   SR.nt_search = ntFind;
   SR.pRes = pResults;

@@ -896,7 +896,7 @@ static err_t SMB_Negotiate( hSHARE hS )
          (SMB_RxWords[9] & 0x100 ? PROT_READRAW+PROT_WRITERAW : 0 ) +
          (SMB_RxWords[1] & 1 ? PROT_USERLOGON : 0 ) +
          (SMB_RxWords[1] & 2 ? PROT_ENCRYPT : 0 );
-      if (SMB_RxWords[10] & 0x80) {
+      if (SMB_RxWords[11] & 0x80) {
         /* CAP_EXTENDED_SECURITY */
         hS->hServer->ProtFlags |= PROT_HAVE_GUID;
         GetData(pB, hS->hServer->guid, 16);
@@ -981,7 +981,9 @@ static err_t SMB_SessSetup ( hSHARE hS, char *userid, char *passwd )
     SMB_TxWords[7] = hS->hServer->bloblen;
     SMB_TxWords[8] = SMB_TxWords[9] = 0; /* reserved */
     SMB_TxWords[10] = SMB_TxWords[11] = 0; /* client capabilities */
-    pB = AddChain ( NULL, hS->hServer->blob, hS->hServer->bloblen );
+    pB = AddChain (NULL, "CIFS", sizeof("CIFS"));
+    if (pB) pB = AddChain ( pB, "RISCOS", sizeof("RISCOS"));
+    if (pB) pB = AddChain ( pB, hS->hServer->blob, hS->hServer->bloblen );
     if (pB == NULL )
       return EOUTOFMEM;
     res = Do_SMB ( hS, SMBsesssetup, 12, pB, NULL );
