@@ -1490,7 +1490,7 @@ static void startcallbacks(void)
         /* Remember that as the SMB_AntiIdle routine rotates through all the shares,
          * each share will only be every pinged MAX_SHARES * 100 * 45 seconds.
          */
-        (void) _swix(OS_CallEvery, _INR(0,2), 100*45, callevery_entry, LM_pw);
+        (void) _swix(OS_CallEvery, _INR(0,2), (100*45) - 1, callevery_entry, LM_pw);
 }
 
 static void stopcallbacks(void)
