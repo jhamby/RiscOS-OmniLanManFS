@@ -1,0 +1,41 @@
+; Copyright 1998 Acorn Computers Ltd
+;
+; Licensed under the Apache License, Version 2.0 (the "License");
+; you may not use this file except in compliance with the License.
+; You may obtain a copy of the License at
+;
+;     http://www.apache.org/licenses/LICENSE-2.0
+;
+; Unless required by applicable law or agreed to in writing, software
+; distributed under the License is distributed on an "AS IS" BASIS,
+; WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+; See the License for the specific language governing permissions and
+; limitations under the License.
+;
+; > &.Hdr.ResourceFS
+;
+
+SWIClass        SETS    "ResourceFS"
+
+        ^       &41B40
+        AddSWI  RegisterFiles           ; &41B40
+        AddSWI  DeregisterFiles         ; &41B41
+
+        MACRO
+$Start  ResourceFile  $InFile, $OutFile
+$Start  DCD     %FT60 - .         ; Offset from here to the next file
+        DCD     :FLOAD:"$InFile"  ; Load address of file
+        DCD     :FEXEC:"$InFile"  ; Exec address of file
+        DCD     :FSIZE:"$InFile"  ; The length of the file
+        DCD     3                 ; Access bits (always WR/)
+        DCB     "$OutFile",0      ; The ResourceFS filename
+        ALIGN
+        DCD     %FT40-%FT20+4     ; The file length plus four
+20
+        BIN     $InFile           ; The file itself
+40
+        ALIGN
+60
+        MEND
+
+        END

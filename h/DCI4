@@ -1,0 +1,366 @@
+/* Copyright 1998 Acorn Computers Ltd
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+/* -*-C-*-
+ *
+ * dci4.h   Reference C interface for DCI4 device drivers
+ *          and protocols.
+ *
+ * (C) Copyright ANT Limited 1994. All rights reserved.
+ *
+ * Contacts:
+ *
+ * Postal:  ANT Ltd., PO BOX 300, Cambridge, CB1 2EG, UK.
+ * Voice:   01223 567808
+ * Fax:     01223 567801
+ * Email:   Support@ant.co.uk
+ *
+ * Author:  Borris
+ *
+ * History:
+ *
+ * 03-01-95 Borris Changed args_DCIProtocolDying to args_DCIProtocolStatus
+ *                 and moved fields around to reflect Kevin Welton's
+ *		   changes.
+ */
+
+/*
+ * Copyright (C) 1994 ANT Limited., PO BOX 300, Cambridge, England.
+ * All rights reserved.
+ *
+ * Redistribution and use in source code and executable binary forms are
+ * permitted provided that: (1) source distributions retain this entire
+ * copyright notice and comment, and (2) distributions including
+ * executable binaries contain the following acknowledgement:
+ *
+ * ``This product includes software developed by ANT Limited and its
+ * contributors.  Copyright (C) ANT Limited 1994.''
+ *
+ * and also in the documentation and other materials provided with the
+ * distribution and in all advertising materials mentioning features or
+ * use of this software. Neither the name of ANT Limited nor the names of
+ * its contributors may be used to endorse or promote products derived
+ * from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED ``AS IS'' AND WITHOUT ANY EXPRESS OR IMPLIED
+ * WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSER.
+ *
+ * NOT INTENDED FOR USE IN LIFE CRITICAL APPLICATIONS.
+ *
+ */
+
+#ifndef included_dci4_h
+#define included_dci4_h
+
+
+/***************************************/
+/*                                     */
+/*  Various constants defined by DCI   */
+/*                                     */
+/***************************************/
+
+
+#define DCI_VERSION_NUMBER                      (4 * 100 + 1 * 1)
+
+#define MagicDCI2Variable                       "Inet$EtherType"
+
+#define DCI_DCIversion                          0
+#define DCI_Inquire                             1
+#define DCI_GetNetworkMTU                       2
+#define DCI_SetNetworkMTU                       3
+#define DCI_Transmit                            4
+#define DCI_Filter                              5
+
+#define XDCI_DCIVersion                         ((1 << 17) | 0)
+#define XDCI_Inquire                            ((1 << 17) | 1)
+#define XDCI_GetNetworkMTU                      ((1 << 17) | 2)
+#define XDCI_SetNetworkMTU                      ((1 << 17) | 3)
+#define XDCI_Transmit                           ((1 << 17) | 4)
+#define XDCI_Filter                             ((1 << 17) | 5)
+
+#define FRMLVL_MASK                             0xffff0000u
+#define FRMTYP_MASK                             0x0000ffffu
+#define FRMLVL_SHIFT                            16
+
+#define FRMLVLOF(x)                             ((unsigned int) (x) & FRMLVL_MASK)
+#define FRMTYPOF(x)                             ((unsigned int) (x) & FRMTYP_MASK)
+
+#define FRMLVL_E2SPECIFIC                       (0x0001u << FRMLVL_SHIFT)
+#define FRMLVL_E2SINK                           (0x0002u << FRMLVL_SHIFT)
+#define FRMLVL_E2MONITOR                        (0x0003u << FRMLVL_SHIFT)
+#define FRMLVL_IEEE                             (0x0004u << FRMLVL_SHIFT)
+#define FRMLVL_SPECIFIC                         FRMLVL_E2SPECIFIC
+#define FRMLVL_SINK                             FRMLVL_E2SINK
+#define FRMLVL_MONITOR                          FRMLVL_E2MONITOR
+
+#define ADDRLVL_SPECIFIC                        0x0000u
+#define ADDRLVL_NORMAL                          0x0001u
+#define ADDRLVL_MULTICAST                       0x0002u
+#define ADDRLVL_PROMISCUOUS                     0x0003u
+
+#define ERRLVL_NO_ERRORS                        0x0000u
+#define ERRLVL_ERRORS                           0x0001u
+
+#define Service_EnumerateNetworkDrivers         0x9bu
+#define Service_DCIDriverStatus                 0x9du
+#define Service_DCIFrameTypeFree                0x9eu
+#define Service_DCIProtocolStatus               0x9fu
+
+#define slot_ExpCard0                           0x00u
+#define slot_ExpCard1                           0x01u
+#define slot_ExpCard2                           0x02u
+#define slot_ExpCard3                           0x03u
+#define slot_ExpCard4                           0x04u
+#define slot_ExpCard5                           0x05u
+#define slot_ExpCard6                           0x06u
+#define slot_ExpCard7                           0x07u
+#define slot_RiscPCNetwork                      0x08u
+#define slot_Special                            0x80u
+#define slot_ParallelPort                       (slot_Special + 0u)
+#define slot_SerialPort                         (slot_Special + 1u)
+#define slot_Econet                             (slot_Special + 2u)
+#define slot_PCMCIA                             (slot_Special + 3u)
+
+#define DriverStatus_Starting                   0u
+#define DriverStatus_Terminating                1u
+
+#define ProtocolStatus_Starting                 0u
+#define ProtocolStatus_Terminating              1u
+
+#define Feature_Multicast                       (1u << 0)
+#define Feature_Promiscuous                     (1u << 1)
+#define Feature_RxOwnTx                         (1u << 2)
+#define Feature_StationNumReq                   (1u << 3)
+#define Feature_RxErrorPackets                  (1u << 4)
+#define Feature_HardwareAddress                 (1u << 5)
+#define Feature_VariableSourceAddress           (1u << 6)
+#define Feature_PointToPoint                    (1u << 7)
+#define Feature_StatisticSupplier               (1u << 8)
+#define Feature_InvalidBits                     0xfffffe00u
+
+#define Transmit_UseSuppliedAddress             (1u << 0)
+#define Transmit_ProtocolFrees                  (1u << 1)
+#define Transmit_InvalidBits                    0xfffffffcu
+
+#define Filter_ClaimRelease                     (1u << 0)
+#define Filter_MustEnsureSafe                   (1u << 1)
+#define Filter_InvalidBits                      0xfffffffcu
+
+
+/***************************************************/
+/*                                                 */
+/*  The following structures are defined by DCI4   */
+/*                                                 */
+/***************************************************/
+
+
+/*
+ * The slot field of a dib is broken down into a number of fields.
+ */
+
+typedef struct slot
+{
+   unsigned int slotid:     8,      /* slot_ series of #defines */
+                minor:      8,      /* determined by device driver */
+                pcmciaslot: 5,      /* must be zero if not PCMCIA slot */
+                mbz:        11;     /* Must Be Zero */
+} dci4_slot;
+
+
+
+/*
+ * Each device driver unit is described by one of these structures
+ */
+
+typedef struct dib
+{
+   unsigned int         dib_swibase;    /* Module's SWI chunk number */
+   char                *dib_name;       /* Eg "ea" and "slip" */
+   unsigned int         dib_unit;       /* Unit number. First is 0, then consecutive */
+   unsigned char       *dib_address;    /* 6 bytes of hardware address */
+   char                *dib_module;     /* Eg "Ether3" */
+   char                *dib_location;   /* Eg "Network expansion slot" */
+   struct slot          dib_slot;       /* See above defintion */
+} dci4_dib;
+
+
+
+/*
+ * Service_EnumerateNetworkDrivers generates a linked list of these
+ * structures to describe the available DCI network device drivers.
+ * Memory allocation is performed from the RMA.
+ */
+
+typedef struct chaindib
+{
+    struct chaindib    *chd_next;
+    struct dib         *chd_dib;
+} dci4_chaindib;
+
+
+
+
+/*
+ * Each packet received by a protocol module contains an additional first
+ * mbuf containing one of these structures.
+ */
+
+typedef struct rx_hdr
+{
+    void               *rx_ptr;
+    unsigned int        rx_tag;
+    unsigned char       rx_src_addr[6],     _spad[2];
+    unsigned char       rx_dst_addr[6],     _dpad[2];
+    unsigned int        rx_frame_type;
+    unsigned int        rx_error_level;
+} dci4_rx_hdr;
+
+
+
+/************************************************************************/
+/*                                                                      */
+/*  These structures map onto the register set used for arguments and   */
+/*  return values for the various calls defined by DCI.                 */
+/*                                                                      */
+/************************************************************************/
+
+
+/* Pad to same size as _kernel_swi_regs (which is 10 ints) */
+
+#define args_PAD9       unsigned int :32
+#define args_PAD8       unsigned int :32, :32
+#define args_PAD7       unsigned int :32, :32, :32
+#define args_PAD6       unsigned int :32, :32, :32, :32
+#define args_PAD5       unsigned int :32, :32, :32, :32, :32
+#define args_PAD4       unsigned int :32, :32, :32, :32, :32, :32
+#define args_PAD3       unsigned int :32, :32, :32, :32, :32, :32, :32
+#define args_PAD2       unsigned int :32, :32, :32, :32, :32, :32, :32, :32
+#define args_PAD1       unsigned int :32, :32, :32, :32, :32, :32, :32, :32, :32
+
+typedef struct
+{
+    struct chaindib    *list;           /* Head of list of chaindibs */
+    unsigned int        scall;          /* Service_EnumerateNetworkDrivers */
+    args_PAD2;
+} args_EnumerateNetworkDrivers;
+
+
+
+typedef struct
+{
+    struct dib         *dib;            /* Driver starting/terminating */
+    unsigned int        scall;          /* Service_DCIDriverStatus */
+    unsigned int        status;         /* 0=starting, 1=terminating */
+    unsigned int        dci_version;    /* Driver's DCI version supported */
+    args_PAD4;
+} args_DCIDriverStatus;
+
+
+
+typedef struct
+{
+    struct dib         *dib;            /* Driver issuing service call */
+    unsigned int        scall;          /* Service_DCIFrameTypeFree */
+    unsigned int        frmlvl;         /* Details of the frame type/class */
+    unsigned int        addrlvl;        /* that has just become available */
+    unsigned int        errlvl;         /* For claiming */
+    args_PAD5;
+} args_DCIFrameTypeFree;
+
+
+
+typedef struct
+{
+    unsigned int        protocol_handle;/* As seen in Filter calls */
+    unsigned int        scall;          /* Service_DCIProtocolDying */
+    unsigned int	action;		/* 0=start, 1=stop */
+    unsigned int        dci_version;    /* Of protocol module */
+    char               *title;          /* See DCI specification */
+    args_PAD5;
+}  args_DCIProtocolStatus;
+
+
+
+typedef struct
+{
+    unsigned long       flags;
+    unsigned int        dci_version;
+    args_PAD2;
+} args_DCIVersion;
+
+
+
+typedef struct
+{
+    unsigned long       flags;
+    unsigned int        unit;
+    unsigned long       features;
+    args_PAD3;
+} args_Inquire;
+
+
+
+typedef struct
+{
+    unsigned long       flags;
+    unsigned int        unit;
+    unsigned int        MTU;
+    args_PAD3;
+} args_GetNetworkMTU;
+
+
+
+typedef struct
+{
+    unsigned long       flags;
+    unsigned int        unit;
+    unsigned int        MTU;
+    args_PAD3;
+} args_SetNetworkMTU;
+
+
+
+typedef struct
+{
+    unsigned long       flags;
+    unsigned int        unit;
+    unsigned int        frmlvl;
+    struct mbuf        *data;
+    unsigned char      *dest_addr;
+    unsigned char      *src_addr;
+    args_PAD6;
+} args_Transmit;
+
+
+
+typedef struct
+{
+    unsigned long       flags;
+    unsigned int        unit;
+    unsigned int        frmlvl;
+    unsigned int        addrlvl;
+    unsigned int        errlvl;
+    unsigned int        protocol_handle;
+    void              (*rcv_fn) (struct dib *, struct mbuf *);
+    args_PAD7;
+} args_Filter;
+
+
+
+
+
+#endif /* included_dci4_h */
+
+/* EOF dci4.h */

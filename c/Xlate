@@ -1,0 +1,672 @@
+/* Copyright 1998 Acorn Computers Ltd
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+/*
+*  Lan Manager client
+*
+*  Xlate.C --  DOS to  RISCOS name & attrib mapping
+*
+*  Versions
+*  07-03-94 INH Original
+*
+*/
+
+
+#include <stdio.h>
+#include <string.h>
+#include <ctype.h>
+
+#include "kernel.h"
+#include "stdtypes.h"
+#include "Xlate.h"
+#include "attr.h"
+#include "omni.h"
+#include "lmvars.h"
+
+/* stricmp(): ignore-case string compare ------------------------ */
+/* returns 0 if they match, > 0 if s1 > s2, < 0 if s1 < s2 */
+
+int stricmp ( const char *s1, const char *s2 )
+{
+  while ( toupper(*s1) == toupper(*s2) )
+  {
+    if ( *s1 == 0 ) return 0;
+    s1++, s2++;
+  }
+  return toupper(*s1) - toupper(*s2);
+}
+
+/* strcpyn(): copies a string with given max length. Note that
+    unlike strncpy(), this will always correctly put terminating
+    zeros on the end. len is the max number of characters including
+    terminating zero to copy (= length of buffer where result is to
+    be put).
+*/
+
+void strcpyn ( char *d, const char *s, int len )
+{
+  while ( --len > 0 && *s != 0 )
+    *d++ = *s++;
+
+  *d = 0;
+}
+
+/* strcpyn_upper(): copies a string making all characters uppercase --- */
+
+void strcpyn_upper ( char *d, const char *s, int len )
+{
+  while ( --len > 0 && *s != 0 )
+   *d++ = toupper (*s++);
+
+  *d=0;
+}
+
+/* strcpyn_lower(): doubtless you can guess --- */
+
+void strcpyn_lower ( char *d, const char *s, int len )
+{
+  while ( --len > 0 && *s != 0 )
+   *d++ = tolower (*s++);
+
+  *d=0;
+}
+
+/* -------------------------- */
+
+static int daycount[13] =
+{
+  0,
+  0,      /* Jan=31 */
+  31,     /* Feb=28 */
+  59,     /* Mar=31 */
+  90,     /* Apr=30 */
+  120,    /* May=31 */
+  151,    /* Jun=30 */
+  181,    /* Jul=31 */
+  212,    /* Aug=31 */
+  243,    /* Sep=30 */
+  273,    /* Oct=31 */
+  304,    /* Nov=30 */
+  334     /* Dec=31 */
+};
+
+/* --------------------------- */
+
+/* Directory entries, as returned from the 'search' command
+   have the time & date returned in a packed-binary DD/MM/YY
+   HH:MM:SS format. This routine converts it to 'Utime',
+   which is the format used in other DOS calls.
+*/
+
+static uint DMYtoUtime ( int dtime, int ddate )
+{
+  uint x, dd, mm, yy, hrs, min, sec;
+
+  dd = ddate & 31;
+  mm = (ddate >> 5) & 15;
+  yy = ((ddate >> 9) & 127); /* Years since 1980 */
+  sec = (dtime & 31) << 1;
+  min = (dtime >> 5) & 63;
+  hrs = (dtime >> 11) & 31;
+
+  /* Calc. no. of days since 1-1-70 */
+  x = 3652 + (yy*365) + ((yy+3)/4);
+  x += daycount[mm] + (dd-1);
+  if ( mm >= 3 && ((yy & 3)==0) ) /* March or later, in leap year */
+    x++;
+
+  return ((x*24+hrs)*60+min)*60 + sec;
+}
+
+
+
+/* ----------------------- */
+
+/* Xlt_CnvDOStoRO translates DOS attributes into RISCOS attributes;
+   it is used by a variety of read-info calls. Flags can be passed
+   to specify whether the date/time or the 'flags' are to be converted.
+
+   The file type filled in the 'load address' and 'exec address' is a
+   default value; if this is important, Attr_GetInfo() should be
+   called to fill this in accurately.
+
+*/
+
+void Xlt_CnvDOStoRO ( DOS_ATTRIBS *pDA, RISCOS_ATTRIBS *pRA, int flags )
+{
+  uint thi, tlo;
+
+/* The "load address" attribute used by RISCOS is equal to
+   0xFFFtttdd, where ttt is a 12-bit file type and dd is
+   bits 32..39 of the time stamp. This is defined as the number
+   of centiseconds since 01-Jan-1900.
+
+   DOS deals (in the main) with time as 'Utime' - the number of seconds
+   since 01-Jan-1970, which is to be RISCOS time 0x33 6E99 6A00.
+   Hence the conversion is relatively simple.
+     RISCOS time = 336E996A00h + 100*Utime
+*/
+
+  if ( flags & CNV_DATETIME )
+  {
+    thi = 0x336E99 + (pDA->utime >> 16) * 100;
+    tlo = 0x6A00 + (pDA->utime & 0xFFFF) * 100;
+
+    /* Total = (thi << 16)+tlo; */
+
+    pRA->loadaddr = 0xFFF00000 + ( (thi+ (tlo >> 16) ) >> 16) +
+                       0xFE400; /* Default type = 'DOS' */
+    pRA->execaddr = (thi << 16) + tlo;
+  }
+
+
+  if ( flags & CNV_ATTRIBS )
+  {
+    if ( pDA->attr & ATTR_DIR )
+    {
+      pRA->flags = (pDA->attr & ATTR_RO) ? ROA_LOCKED :0;
+    }
+    else
+    {
+      pRA->flags = (pDA->attr & ATTR_RO) ? ROA_READ | ROA_LOCKED :
+                       ROA_READ | ROA_WRITE;
+    }
+  }
+}
+
+/* --------------------------- */
+
+/* Xlt_CnvROtoDOS converts RISCOS attributes to DOS attributes;
+   this is usually prior to some set-attributes call.
+*/
+
+void Xlt_CnvROtoDOS ( RISCOS_ATTRIBS *pRA, DOS_ATTRIBS *pDA, int flags )
+{
+  uint x, res;
+  /* Here, we convert RISCOS time to DOS Utime. Here,
+     Utime = (RISCOStime - 0x336E996A00h) / 100 */
+
+  if ( flags & CNV_DATETIME )
+  {
+    if ( (pRA->loadaddr & 0xFFF00000) != 0xFFF00000 )
+    {
+      /* If this is not a time/date/type-stamped file... */
+      pDA->utime = 0;
+    }
+    else
+    {
+      x = ((pRA->loadaddr & 0xFF) << 24) + (pRA->execaddr >> 8);
+      /* Clip these values to DOS range */
+      if ( x < 0x336E996A )
+        x = 0;
+      else
+        x -= 0x336E996A;
+
+      if ( x >= 100 * 0xFFFFFF ) x = 100*0xFFFFFF;
+      res = x/100;
+      x = ((x - res*100) << 8) + (pRA->execaddr & 0xFF);
+      res = (res << 8) + (x / 100);
+      pDA->utime = res;
+    }
+  }
+
+  if ( flags & CNV_ATTRIBS )
+  {
+    if ( (pRA->flags & ROA_WRITE) == 0 &&
+         (pRA->flags & ROA_LOCKED)  != 0
+       )
+      pDA->attr = ATTR_ARC | ATTR_RO;
+    else
+      pDA->attr = ATTR_ARC;
+  }
+}
+
+/* --------------------------- */
+
+/* Xlt_Jumble() and Xlt_Unjumble() are used to avoid keeping passwords
+   lying round in plain text in memory; it's hardly invincible,
+   but it'll stop people spotting passwords simply by dumping memory.
+
+   All strings passed to Jumble & Unjumble should be NAME_LIMIT bytes
+   long.
+*/
+
+void Xlt_Jumble ( char *str )
+{
+  int i;
+  uint key = (uint) str | 0x40000;
+
+  for ( i=0; i < NAME_LIMIT; i++ )
+  {
+    key <<= 1;
+    if ( key & 0x80000 )
+      key ^= 39;
+    *str -= (key ^ 0x40);
+    str++;
+  }
+}
+
+/* ------------------- */
+
+void Xlt_Unjumble ( char *str )
+{
+  int i;
+  uint key = (uint) str | 0x40000;
+
+  for ( i=0; i < NAME_LIMIT; i++ )
+  {
+    key <<= 1;
+    if ( key & 0x80000 )
+      key ^= 39;
+    *str += (key ^ 0x40);
+    str++;
+  }
+}
+
+/* Name conversion, etc =========================================== */
+
+static char Xlt_DefaultDrv = 'A';
+
+/* Wildcards, it seems, are not in fact used:
+   A 'delete' operation reads directory entries
+   first, and passes us individual filenames to
+   delete. A 'rename' operation tries to do a
+   'get file info' function on the wildcarded
+   filename, then complains when it fails. ADFS
+   doesn't allow wildcarded renames (although it
+   does allow "move to new directory" renames), so
+   we won't either. This means we can dispense with
+   all wildcards in filenames.
+*/
+
+/* Character translate table ------------- */
+
+#define CH_END  0
+#define CH_ERR  1
+#define CH_WILD 2
+#define CH_PATH 3
+#define CH_SEP  4
+
+#define CH_DUD '_'
+
+/* Current tables set
+
+
+  DOS   RISCOS
+  #      ?
+  $      <
+  %      >
+  &      +
+  @      =
+  ^      ,
+
+  Illegal in RISCOS names: space * " : \ | # $ % & @ ^ DLE
+
+  Also: RISCOS { and [ map to DOS (, } and ] to ),
+    ; and top-bit-set chars to _
+
+*/
+
+static char xlt_RO2DOS[256] =
+{
+  CH_END, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, /* 00-07 */
+  CH_ERR, CH_ERR, CH_END, CH_ERR, CH_ERR, CH_END, CH_ERR, CH_ERR, /* 08-0F */
+  CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, /* 10-17 */
+  CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, /* 17-1F */
+
+  CH_ERR, '!',    CH_ERR, CH_WILD,CH_ERR, CH_ERR, CH_ERR, '\'',
+  '(',    ')',    CH_WILD,'&',    '^',    '-',    CH_PATH,CH_SEP,
+  '0',    '1',    '2',    '3',    '4',    '5',    '6',    '7',
+  '8',    '9',    CH_ERR, CH_DUD, '$',    '@',    '%',    '#',
+
+  CH_ERR, 'A',    'B',    'C',    'D',    'E',    'F',    'G',
+  'H',    'I',    'J',    'K',    'L',    'M',    'N',    'O',
+  'P',    'Q',    'R',    'S',    'T',    'U',    'V',    'W',
+  'X',    'Y',    'Z',    '(',    CH_ERR, ')',    CH_ERR, '_',
+
+  '`',    'A',    'B',    'C',    'D',    'E',    'F',    'G',
+  'H',    'I',    'J',    'K',    'L',    'M',    'N',    'O',
+  'P',    'Q',    'R',    'S',    'T',    'U',    'V',    'W',
+  'X',    'Y',    'Z',    '(',    CH_ERR, ')',    '~',    CH_ERR,
+
+  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
+  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
+  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
+  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
+
+  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
+  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
+  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
+  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
+
+  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
+  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
+  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
+  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
+
+  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
+  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
+  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
+  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD
+};
+
+
+static err_t nameROtoDOS ( char *dst, char *src )
+{
+  int ch;
+  int o_name= 0;
+  int o_ext = 0;
+
+  while (1)  /* Process as many chars as we can */
+  {
+    ch = xlt_RO2DOS[(*src++) & 0xFF];
+
+    /* o_name counts the number of characters in the
+       'name' part which we have output, in the range 0..8;
+       it is set to 9 when we are outputting the 'ext' part.
+       o_ext counts the number of characters in the 'ext'
+       part which we have output.
+    */
+
+    switch( ch )
+    {
+      case CH_END:      /* End of string */
+        *dst = 0;
+        return OK;
+
+      case CH_ERR:      /* No-good chars */
+        return EBADNAME;
+
+      case CH_WILD:
+        return ENOWILDCARD;
+
+      case CH_PATH:      /* RISCOS pathname separator */
+        *dst++ = '\\';
+        o_name = 0;
+        o_ext = 0;
+        continue;
+
+      case CH_SEP:      /* Separator for name/ext */
+        if ( o_name >= 1 && o_name <= 8 )
+        {
+          *dst++ = '.';
+          o_name = 9;   /* Stop any more */
+        }
+        continue;
+
+      default:
+        if ( o_name == 8 ) /* Time for a separator? */
+        {
+          *dst++ = '.';
+          *dst++ = '~';
+          *dst++ = ch;
+          o_name = 9;
+          o_ext  = 2;
+        }
+        else if ( o_name < 8 )
+        {
+          *dst++ = ch;
+          o_name++;
+        }
+        else if ( o_ext < 3 )
+        {
+          *dst++ = ch;
+          o_ext++;
+        }
+
+        continue;
+    }
+  }
+
+}
+
+/* -------------------------- */
+
+static char xlt_DOS2RO[256] =
+{
+  CH_END, CH_DUD, CH_DUD, CH_DUD, CH_DUD, CH_DUD, CH_DUD, CH_DUD, /* 00-07 */
+  CH_DUD, CH_DUD, CH_END, CH_DUD, CH_DUD, CH_END, CH_DUD, CH_DUD, /* 08-1F */
+  CH_DUD, CH_DUD, CH_DUD, CH_DUD, CH_DUD, CH_DUD, CH_DUD, CH_DUD, /* 00-07 */
+  CH_DUD, CH_DUD, CH_DUD, CH_DUD, CH_DUD, CH_DUD, CH_DUD, CH_DUD, /* 00-07 */
+
+  CH_DUD, '!',    CH_DUD, '?',    '<',    '>',    '+',    '\'',
+  '(',    ')',    CH_DUD, '+',    ',',    '-',    CH_SEP, '/',
+  '0',    '1',    '2',    '3',    '4',    '5',    '6',    '7',
+  '8',    '9',    CH_DUD, ';',    '<',    '=',    '>',    '?',
+
+  '=',    'A',    'B',    'C',    'D',    'E',    'F',    'G',
+  'H',    'I',    'J',    'K',    'L',    'M',    'N',    'O',
+  'P',    'Q',    'R',    'S',    'T',    'U',    'V',    'W',
+  'X',    'Y',    'Z',    '[',    CH_DUD, ']',    ',',    '_',
+
+  '`',    'a',    'b',    'c',    'd',    'e',    'f',    'g',
+  'h',    'i',    'j',    'k',    'l',    'm',    'n',    'o',
+  'p',    'q',    'r',    's',    't',    'u',    'v',    'w',
+  'c',    'y',    'z',    '{',    CH_DUD, '}',    '~',     CH_DUD,
+
+  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
+  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
+  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
+  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
+
+  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
+  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
+  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
+  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
+
+  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
+  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
+  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
+  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
+
+  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
+  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
+  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
+  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD
+};
+
+
+/* -------------------------- */
+
+void Xlt_NameDOStoRO ( char *dst, char *src )
+{
+  int i, c;
+  int lcl_name_mode = LM_Vars.namemode & 3;
+
+  for ( i=0; i<12; i++ )      /* Up to 12 chars in 8.3 name */
+  {
+    c = xlt_DOS2RO[src[i] & 0xFF];
+
+    if ( c == CH_END )
+      break;
+
+    if ( c == CH_SEP ) /* Name/ext separator */
+    {
+      if ( i == 8 && src[9] == '~' ) /* Skip ".~" */
+        i=9;
+      else
+        *dst++ = '/';
+    }
+    else switch (lcl_name_mode)
+    {
+      case NM_LOWERCASE:
+        *dst++ = tolower(c);
+        break;
+
+      case NM_FIRSTCAPS:
+        if ( isalpha(c) )
+        {
+          *dst++ = toupper(c);
+          lcl_name_mode = NM_LOWERCASE;
+          break;
+        }
+        /* else drop through into */
+      case NM_PRESERVED:
+      default:
+        *dst++ = c;
+        break;
+
+    }
+  }
+
+  *dst = 0;
+}
+
+/* --------------------------- */
+
+
+err_t Xlt_SetDefaultDrv ( char *dospath )
+{
+  Xlt_DefaultDrv = dospath[0];
+  return OK;
+}
+
+/* --------------------------- */
+
+static char mount_name[20];
+
+err_t Xlt_ConvertPath ( char *name_in, char *name_out )
+{
+  int i;
+  char drvc = Xlt_DefaultDrv;
+
+  if ( name_in[0] == ':' )  /* Mount name is given */
+  {
+    name_in++;
+    for (i=0; i<19; i++)
+    {
+      mount_name[i] = name_in[i];
+      if ( name_in[i] < ' ' )  /* Premature end of name */
+        return EBADNAME;
+
+      if ( name_in[i] == '.' )
+        break;
+    }
+
+    mount_name[i] = 0;
+    drvc = Omni_GetDrvLetter(mount_name);
+    if ( drvc == 0 )
+      return EBADDRV;
+
+    name_in += (i+1); /* Skip '.' */
+  }
+
+  if ( name_in[0] != '$' )
+    return EBADNAME;
+
+  name_out[0] = drvc;
+  name_out[1] = ':';
+
+  if ( name_in[1] < ' ' ) /* Just '$' as pathname */
+  {
+    strcpy(name_out+2, "\\");
+    return OK;
+  }
+  else if ( name_in[1] == '.' )
+  {
+    return ( nameROtoDOS ( name_out+2, name_in+1 ) );
+  }
+
+  name_out[0] = 0;
+  return EBADNAME;
+}
+
+/* --------------------------- */
+
+/* Gets a leaf name from a DOS name */
+
+char *Xlt_GetRISCOSLeafName ( char *name_in )
+{
+  char *tmp;
+  tmp = strrchr ( name_in, '.' );
+  return ( tmp == NULL ) ? name_in : tmp;
+}
+
+/* Directory entry conversion ================================== */
+
+err_t Xlt_ExpandSearchEntry ( BYTE *entry, char *path_base,
+            char *name_out,
+            DOS_ATTRIBS *da_out,
+            RISCOS_ATTRIBS *ra_out )
+{
+  DOS_ATTRIBS da;
+
+  if ( entry == NULL )
+    return EBADPARAM;
+
+  if ( name_out != NULL )
+  {
+    Xlt_NameDOStoRO ( name_out, (char *)entry+9 );
+  }
+
+  if ( da_out != NULL || ra_out != NULL )
+  {
+    da.attr   = entry[0];
+    da.utime  = DMYtoUtime ( entry[1] + (entry[2] << 8),
+                          entry[3] + (entry[4] << 8) );
+    da.length = entry[5] + (entry[6]<<8) +
+                       (entry[7]<<16) + (entry[8]<<24);
+
+    if ( da_out != NULL )
+      *da_out = da;
+
+    if ( ra_out != NULL )
+    {
+      Xlt_CnvDOStoRO ( &da, ra_out, CNV_DATETIME+CNV_ATTRIBS );
+      Attr_GetInfo ( path_base, (char *)entry+9, ra_out );
+    }
+  }
+
+  return OK;
+}
+
+/* Error translation =========================================== */
+
+extern _kernel_oserror *Err_XltTable[MAX_ERRS+1];
+
+static _kernel_oserror *Xlt_OS_Error;
+
+/* ------------------------------- */
+
+err_t Xlt_SetOSError ( _kernel_oserror *err )
+/* This is used when an error generated by RISCOS has to be
+   returned as if it was one of ours - most notably, errors
+   returned from processing a command line. We use a special
+   error number, EXT_OS_ERROR, to denote this. */
+{
+  Xlt_OS_Error = err;
+
+  if ( err == NULL )
+    return OK;
+
+  return EXT_OS_ERROR;
+}
+
+/* ------------------------------- */
+
+_kernel_oserror *Xlt_Error ( err_t err )
+{
+  if ( err==0 ) return NULL;
+
+  if ( err==EXT_OS_ERROR && Xlt_OS_Error != NULL )
+    return Xlt_OS_Error;       /* Else, drop through to mysterious error */
+
+  if ( err < 0 || err > MAX_ERRS ) /* Use 'mysterious error' */
+    err=0;
+
+  return Err_XltTable[err];
+}
+
+/* ------------------------------- */
+
