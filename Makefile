@@ -45,7 +45,8 @@ CD	= dir
 CPFLAGS = ~cfr~v
 WFLAGS  = ~c~v
 
-DFLAGS    = -UTML -DCOMPAT_INET4 -DLONGNAMES
+# sbrodie 5/1/99: Define LANMANFS to enable use of NFS headers
+DFLAGS    = -UTML -DCOMPAT_INET4 -DLANMANFS -DLONGNAMES
 AFLAGS    = -depend !Depend ${THROWBACK} -Stamp -quit
 CFLAGS    = -depend !Depend ${THROWBACK} -c -Wpc -ff -zps1 -zM ${INCLUDES},. ${DFLAGS}
 CMHGFLAGS = -depend !Depend ${THROWBACK} -p
@@ -79,16 +80,17 @@ ROM_OBJS  = or.LanMan or.Omni or.Logon or.CoreFn or.Printers \
 #            od.LLC od.NetBIOS od.SMB od.Attr od.RPC od.NBIP od.Stats LanMan_MH.o 
 
 DBG_OBJS  = od.LanMan o.Omni od.Logon od.CoreFn od.Printers \
-            od.Xlate od.buflib  Interface.o RMInfo.o Errors.o od.Transact \
-            od.LLC o.NetBIOS od.SMB o.Attr od.RPC o.NBIP od.Stats LanMan_MH.o 
+            od.Xlate od.buflib Interface.o RMInfo.o Errors.o od.Transact \
+            o.LLC o.NetBIOS o.SMB o.Attr od.RPC o.NBIP od.Stats LanMan_MH.o 
 
-OBJSI     = i.LanMan i.Omni i.Logon i.CoreFn i.Printers \
+OBJSI     = i.LanMan i.Omni i.Logon i.CoreFn i.Printers i.PathMunge \
             i.Xlate i.buflib i.Transact \
             i.LLC i.NetBIOS i.SMB i.Attr i.RPC i.NBIP i.Stats
 
 OBJSINST  = LanMan_MH.o inst.LanMan inst.Omni inst.Logon inst.CoreFn inst.Printers \
             inst.Xlate inst.buflib Interface.o RMInfo.o Errors.o inst.Transact\
-            inst.LLC inst.NetBIOS inst.SMB inst.Attr inst.RPC inst.NBIP inst.Stats
+            inst.LLC inst.NetBIOS inst.SMB inst.Attr inst.RPC inst.NBIP inst.Stats \
+            inst.PathMunge 
 
 LanMan_MH.h: LanMan_MH.o
 	${CMHG} ${CMHGFLAGS} cmhg.$* -d $@

@@ -155,6 +155,7 @@ typedef struct
   int  attr;
   uint utime;
   int  length;
+  int  riscos_type;
 }
   DOS_ATTRIBS;
 

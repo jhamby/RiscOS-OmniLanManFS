@@ -322,6 +322,24 @@ void Attr_InvalidateDrive( char drvletter )
    in separately.
 */
 
+#ifdef LONGNAMES
+static err_t Attr_GetInfoX2 ( char *filename, char *leafname,
+      RISCOS_ATTRIBS *pRA )
+{
+  char *lastcomma;
+
+  (void) leafname;
+
+  if (Xlt_SplitLeafnameX2 ( leafname?leafname:filename, pRA, &lastcomma ) != OK) {
+    /* Something asked using a RISC OS name.  Need to do a lookup
+     * for the file.
+     */
+    //GetDefaultType ( leafname, pRA );
+    //return EATTRIBREAD;
+  }
+  return OK;
+}
+#endif
 
 err_t Attr_GetInfo ( char *filename, char *leafname,
       RISCOS_ATTRIBS *pRA )
@@ -329,6 +347,12 @@ err_t Attr_GetInfo ( char *filename, char *leafname,
   int Attr_FH;  /* File handle for attrib file */
   int pos;
   DOS_ATTRIBS da;
+
+#ifdef LONGNAMES
+  if (SMB_IsLongNameFS(filename))
+    return Attr_GetInfoX2 ( filename, leafname, pRA );
+#endif
+
 
   if ( SetFileName(filename) != OK )
     return EBADNAME;
@@ -407,6 +431,11 @@ err_t Attr_DeleteInfo ( char *pathname )
   int pos;
   DOS_ATTRIBS da;
 
+#ifdef LONGNAMES
+  if (SMB_IsLongNameFS(pathname))
+    return OK;
+#endif
+
   if ( SetFileName(pathname) != OK )
     return EBADNAME;
 
@@ -456,6 +485,12 @@ close_file:
    in.
 */
 
+#ifdef LONGNAMES
+static err_t Attr_SetInfoX2 ( char *pathname, RISCOS_ATTRIBS *pRA )
+{
+}
+#endif
+
 extern err_t Attr_SetInfo ( char *pathname, RISCOS_ATTRIBS *pRA )
 {
   err_t err;
@@ -464,6 +499,12 @@ extern err_t Attr_SetInfo ( char *pathname, RISCOS_ATTRIBS *pRA )
   DOS_ATTRIBS da;
 
   debug1("SetInfo for '%s'\n", pathname);
+
+#ifdef LONGNAMES
+  if (SMB_IsLongNameFS(pathname))
+    return Attr_SetInfoX2 ( pathname, pRA );
+#endif
+
 
   if ( SetFileName(pathname) != OK )
     return EBADNAME;
@@ -576,6 +617,14 @@ void Attr_CheckEmptyDir (char *dirname)
 
   AttrAllInCache = false;
   AttrCacheLen = 0;
+
+#ifdef LONGNAMES
+  /* Shouldn't be any RISCOS.EA file present - user must delete it if
+   * there is one - we're not hiding it away on long filename shares
+   */
+  if (SMB_IsLongNameFS(dirname))
+    return;
+#endif
 
   /* Open Attr file */
 

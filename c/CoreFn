@@ -92,12 +92,16 @@ static char *WriteEntry ( int reason, char *ptr, BYTE *entry, int format )
   RISCOS_ATTRIBS ra;
   int *IntPtr;
 
+#ifndef LONGNAMES
+    (void) format;
+#else
   if (format == 1) {
     Xlt_ExpandSearchEntryX2(entry, DOSnamebuf, namebuf, &da, &ra);
   }
-  else {
+  else
+#endif
     Xlt_ExpandSearchEntry(entry, DOSnamebuf, namebuf, &da, &ra);
-  }
+
   name_len = strlen(namebuf) + 1;
 
   switch ( reason )
@@ -359,6 +363,11 @@ _kernel_oserror *fsentry_func ( int *R )
       if ( err == OK )
         err = SMB_Rename ( DOSnamebuf, DOSnamebuf+DOS_NAME_LEN );
 
+#ifdef LONGNAMES
+      if (SMB_IsLongNameFS(DOSnamebuf + DOS_NAME_LEN)) break;
+      /* Don't bother with any of this rubbish for long filename discs */
+#endif
+
       if ( err == OK )  /* If rename worked, swap attribs */
       {
         RISCOS_ATTRIBS ra;
@@ -423,11 +432,12 @@ static err_t FileGetAttribs ( char *filename, DOS_ATTRIBS *pda,
 {
   err_t err;
 
+  debug1("FileGetAttribs(%s) ... \n", filename);
   err = SMB_GetAttribs ( filename, pda );
   if ( err == OK )
   {
     Xlt_CnvDOStoRO ( pda, pra, CNV_DATETIME | CNV_ATTRIBS );
-    Attr_GetInfo ( DOSnamebuf, NULL, pra );
+    Attr_GetInfo ( filename, NULL, pra );
   }
   return err;
 }

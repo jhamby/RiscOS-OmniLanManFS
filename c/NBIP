@@ -610,6 +610,13 @@ static void SendFindRequest ( struct sockaddr *pDst, NAME_ENTRY *pNE )
   p = PutNetname( p, &(pNE->nn) );  /* Query section */
   p = PutLong (p, INET_NAME_TAG );
 
+
+#ifdef DEBUG
+  {
+          struct sockaddr_in *sin = (void *) pDst;
+          debug1("SendFindRequest -> [%s]\n", inet_ntoa(sin->sin_addr));
+  }
+#endif
   SendDatagram ( pDst, DatagramBuf, p );
 }
 
@@ -929,6 +936,7 @@ static void NameFindReply ( struct NBNS_packet *pNBP,
        pNBRR->data_length >= 6  /* At least one entry in reply */
      )
   {
+    debug0("NameFindReply - found\n");
     pNE->status = RMT_FOUND;
     pNE->nbflags = GetShort(dp);
     pNE->IPaddress = GetIPAddr(dp+2);

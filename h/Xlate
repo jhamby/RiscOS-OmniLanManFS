@@ -72,9 +72,7 @@ extern _kernel_oserror *Xlt_Error ( err_t err );
 /* Translate from RISCOS error block to our error code */
 extern err_t Xlt_SetOSError ( _kernel_oserror *err );
 
-
-
-
-
-
-
+#ifdef LONGNAMES
+extern err_t Xlt_SplitLeafnameX2 ( char *leafname, RISCOS_ATTRIBS *pRA,
+  char **terminator);
+#endif

@@ -745,31 +745,34 @@ static err_t SMB_WriteRaw ( hSHARE hS, int fid, int offset,
 /* sbrodie: Abstract the dialect strings here - means debug version can
  * can this function to find out which protocol was accepted.
  */
-static char *SMB_Dialect(int num)
+static char *dialects[] = {
+                "PC NETWORK PROGRAM 1.0",
+                "DOS LM1.2X002",
+                "LM1.2X002",
+                "NT LM 0.12"
+};
+#define MAX_DIALECT ((sizeof(dialects)/sizeof(*dialects))-1)
+static char *SMB_Dialect(unsigned int num)
 {
-        if (num == 0) return "PC NETWORK PROGRAM 1.0";
-        if (num == 1) return "DOS LM1.2X002";
-        if (num == 2) return "LM1.2X002";
-        if (num == 3) return "NT LM 0.12";
+        if (num <= MAX_DIALECT) return dialects[num];
         return "";
 }
-#define MAX_DIALECT 3
 
 /* ---------------------------- */
 
 static err_t SMB_Negotiate( hSHARE hS )
 {
   err_t res;
-  int dcount;
+  unsigned int dcount;
 
   BUFCHAIN pB;
 
   pB = NULL;
 
   /* Must be entered in reverse order */
-  for (dcount = MAX_DIALECT; dcount >= 0; --dcount) {
+  for (dcount = MAX_DIALECT; ; --dcount) {
     pB = MkDataString( pB, DATA_DIALECT, SMB_Dialect(dcount));
-    if (pB == NULL) break;
+    if (pB == NULL || dcount == 0) break;
   }
 
   if ( pB == NULL )
@@ -1215,8 +1218,7 @@ bool SMB_IsLongNameFS( const char * path)
   hSHARE hS;
 
   hS = GetShare(path, &e);
-  if (e != OK) return false;
-  if (hS->use_t2) return true;
+  if (e == OK && hS->use_t2) return true;
   return false;
 }
 
@@ -1621,6 +1623,7 @@ static err_t SMB_GetAttribsX2 (hSHARE hS, char *filename, DOS_ATTRIBS *pAttr )
   swap_time_date(tp.data_out_buf+4);
   swap_time_date(tp.data_out_buf+8);
   /* end workaround */
+  strcpy((char *)tp.data_out_buf+23, filename); /* Xlt_ExpandSearchEntryX2 relies on this */
   return Xlt_ExpandSearchEntryX2 ( tp.data_out_buf, NULL, NULL, pAttr, NULL);
 }
 #endif /* LONGNAMES */
@@ -1950,7 +1953,7 @@ static err_t SMB_ReadDirEntriesX2 ( hSHARE hS, char *path, int count,
        * and it will have to restart the search next time around.
        */
        //NextSearchOK = eos ? false : true;
-       debug0("Bugger.  Looks like client ran out of space\n");
+       debug0("Bugger.  Looks like client ran out of space (or could be name xlate code)\n");
        if (eos) {
          (void) SMB_AbandonFind2( hS, dir_handle );
        }
@@ -2582,7 +2585,9 @@ static err_t SMB_Transact2 ( hSHARE hS, struct TransactParms *pT )
        */
   int   padbytes;    /* Temp variable */
   int   sc;
+  int   retry = 3;
 
+retry_transact2:
   debug2("SMB_Transact2: processing (Tid = %#04x, sub-cmd=%#04x)...\n", hS->Tid,
     pT->setup_in[0]);
 
@@ -2634,6 +2639,12 @@ static err_t SMB_Transact2 ( hSHARE hS, struct TransactParms *pT )
   res = Do_SMB ( hS, SMBtrans2, 14 + pT->setup_in_len, pB, &pBres );
 
   if ( res != OK ) {
+    if (SMB_RxHdr.errclass == ERRSRV && SMB_RxHdr.errlo == 1 && SMB_RxHdr.errhi == 0 && retry)
+    {
+       --retry;
+       debug0("SMB_Transact2: retrying request\n");
+       goto retry_transact2;
+    }
     debug0("SMB_Transact2: Do_SMB failed\n");
     DumpBuffer(&SMB_RxHdr, SMBHDR_SIZE);
     return res;
@@ -2687,7 +2698,8 @@ static err_t SMB_Transact2 ( hSHARE hS, struct TransactParms *pT )
     if ( padbytes > 0 )
       pBres = GetData(pBres, NULL, padbytes);
     pBres = GetData(pBres, pT->data_out_buf, pT->data_out_len);
-    //if (pT->setup_in[0] == 5) DumpBuffer(pT->data_out_buf, pT->data_out_len);
+    if (pT->setup_in[0] == TRANSACT2_QUERYPATHINFORMATION)
+      DumpBuffer(pT->data_out_buf, pT->data_out_len);
   }
 
   if ( pBres == NULL ) {  /* Oh no! Techo fear! */
