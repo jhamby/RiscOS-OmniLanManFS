@@ -284,7 +284,7 @@ OmniS_ResFSStarting ; (int R2, int R3 )
 
 ; Data block
 Resource_Base
-        ResourceFile "Sprites", "ThirdParty.OmniClient.LanMan.Sprites"
+        ResourceFile "LocalRes:Sprites", "ThirdParty.OmniClient.LanMan.Sprites"
         DCD     0
 
 

@@ -22,29 +22,15 @@ EXP_HDR = <export$dir>
 # Component specific options:
 #
 COMPONENT  = LanManFS
-ROM_MODULE = aof.${COMPONENT}
-RAM_MODULE = rm.${COMPONENT}
-DBG_MODULE = rm.${COMPONENT}D
-
+TARGET     = LanManFS
+ROM_MODULE = aof.${TARGET}
+RAM_MODULE = rm.${TARGET}
+DBG_MODULE = rm.${TARGET}D
 
 #
 # Generic options:
 #
-MKDIR   = mkdir -p
-AS      = objasm
-CC      = cc
-CMHG    = cmhg
-CP      = copy
-LD      = link
-RM      = remove
-MODSQZ  = modsqz
-WIPE    = -wipe
-CD      = dir
-RESGEN  = resgen
-
-
-CPFLAGS = ~cfr~v
-WFLAGS  = ~c~v
+include StdTools
 
 DFLAGS    = -DCOMPAT_INET4 -DLONGNAMES ${OPTIONS}
 AFLAGS    = -depend !Depend ${THROWBACK} -Stamp -quit
@@ -55,49 +41,23 @@ INCLUDES  = -ITCPIPLibs:,C:
 #
 # Libraries
 #
-CLIB      = CLIB:o.stubs
-RLIB      = RISCOSLIB:o.risc_oslib
-RSTUBS    = RISCOSLIB:o.rstubs
-ROMSTUBS  = RISCOSLIB:o.romstubs
-ROMCSTUBS = RISCOSLIB:o.romcstubs
-ABSSYM    = RISC_OSLib:o.AbsSym
-INETLIB   = TCPIPLibs:o.inetlibzm
-SOCKLIB   = TCPIPLibs:o.socklibzm
-UNIXLIB   = TCPIPLibs:o.unixlibzm
-DEBUGLIB  = C:DebugLib.o.DebugLibZM
-ASMUTILS  = C:AsmUtils.o.AsmUtilsZM
+include ModuleLibs
 
+MAINOBJS  = LanMan.o Omni.o Logon.o CoreFn.o Printers.o NameCache.o \
+            Xlate.o buflib.o Transact.o \
+            LLC.o NetBIOS.o SMB.o Attr.o RPC.o NBIP.o Stats.o
 
+NONCOBJS  = LanMan_MH.o Errors.o Interface.o
 
-OBJS      = LanMan.o Omni.o Logon.o CoreFn.o Printers.o NameCache.o \
-            Xlate.o Interface.o buflib.o Transact.o \
-            LLC.o NetBIOS.o SMB.o Errors.o Attr.o RPC.o NBIP.o Stats.o LanMan_MH.o
+OBJS      = ${MAINOBJS} ${NONCOBJS}
 
-ROM_OBJS  = or.LanMan or.Omni or.Logon or.CoreFn or.Printers or.NameCache \
-            or.Xlate or.buflib  Interface.o Errors.o or.Transact \
-            or.LLC or.NetBIOS or.SMB or.Attr or.RPC or.NBIP or.Stats LanMan_MH.o 
+ROM_OBJS  = ${NONCOBJS} ${MAINOBJS:%.o=or.%}
 
-#DBG_OBJS  = od.LanMan od.Omni od.Logon od.CoreFn od.Printers od.NameCache \
-#            od.Xlate od.buflib  Interface.o Errors.o o.Transact \
-#            od.LLC od.NetBIOS od.SMB od.Attr od.RPC od.NBIP od.Stats LanMan_MH.o 
+DBG_OBJS  = ${NONCOBJS} ${MAINOBJS:%.o=od.%}
 
-#DBG_OBJS  = od.LanMan od.Omni od.Logon od.CoreFn od.Printers od.NameCache \
-#            od.Xlate od.buflib Interface.o Errors.o od.Transact \
-#            o.LLC o.NetBIOS od.SMB o.Attr od.RPC od.NBIP od.Stats LanMan_MH.o 
+OBJSI     = ${NONCOBJS} ${MAINOBJS:%.o=i.%}
 
-DBG_OBJS  = od.LanMan o.Omni o.Logon o.CoreFn o.Printers o.NameCache \
-            o.Xlate o.buflib Interface.o Errors.o o.Transact \
-            o.LLC o.NetBIOS od.SMB o.Attr o.RPC o.NBIP o.Stats LanMan_MH.o 
-
-
-OBJSI     = i.LanMan i.Omni i.Logon i.CoreFn i.Printers i.NameCache \
-            i.Xlate i.buflib i.Transact \
-            i.LLC i.NetBIOS i.SMB i.Attr i.RPC i.NBIP i.Stats
-
-OBJSINST  = LanMan_MH.o inst.LanMan inst.Omni inst.Logon inst.CoreFn inst.Printers \
-            inst.Xlate inst.buflib Interface.o Errors.o inst.Transact\
-            inst.NameCache\
-            inst.LLC inst.NetBIOS inst.SMB inst.Attr inst.RPC inst.NBIP inst.Stats 
+OBJSINST  = ${NONCOBJS} ${MAINOBJS:%.o:inst.%}
 
 LanMan_MH.h: LanMan_MH.o
 	${CMHG} ${CMHGFLAGS} cmhg.$* -d $@
@@ -113,11 +73,6 @@ LanMan_MH.h: LanMan_MH.o
 .i.inst:;	$(CC) $(CFLAGS) -C++ -o $@ $<
 .cmhg.o:;   ${CMHG} ${CMHGFLAGS} -o $@ $< -d $*.h
 .s.o:;      ${AS} ${AFLAGS} $< $@
-
-# Binary Build Environment augmenting rules
-BBETYPE   = local
-bbe-local: bbe-generic-resources-get-alias
-	BBE_Export_File Sprites
 
 #
 # Build target
@@ -139,8 +94,8 @@ rom: ${ROM_MODULE}
 	@echo ${COMPONENT}: rom module built
 
 resources:
-	${MKDIR} ${RESDIR}.${COMPONENT}
-	${CP} Sprites ${RESDIR}.${COMPONENT}.Sprites  ${CPFLAGS}
+	${MKDIR} ${RESDIR}.${TARGET}
+	${CP} LocalRes:Sprites ${RESDIR}.${TARGET}.Sprites  ${CPFLAGS}
 	@echo ${COMPONENT}: resource files copied
 
 preprocess: ${OBJSI} i.dirs
@@ -148,7 +103,7 @@ preprocess: ${OBJSI} i.dirs
 
 instrument: ${OBJSINST} inst.instlib i.dirs o.dirs 
 	$(LD) -rmf -o $@ $(OBJSINST) inst.instlib $(STUBS)
-	ModSqz $@
+	${MODSQZ} $@
 	@echo ${COMPONENT}: instrument build complete
 
 o.dirs:
@@ -187,21 +142,21 @@ clean:
 #
 ${RAM_MODULE}: ${OBJS} o.dirs
 	${MKDIR} rm
-	${LD} -o $@ -rmf ${OBJS} ${UNIXLIB} ${INETLIB} ${SOCKLIB} ${CLIB} ${ASMUTILS}
+	${LD} -o $@ -rmf ${OBJS} ${NET4LIBS} ${CLIB} ${ASMUTILS}
 	${MODSQZ} $@
 	Access $@ RW/R
 
 ${DBG_MODULE}: ${DBG_OBJS} o.dirs
 	${MKDIR} rm
-	${LD} -o $@ -rmf ${DBG_OBJS} ${UNIXLIB} ${INETLIB} ${SOCKLIB} ${DEBUGLIB} ${CLIB} ${ASMUTILS}
+	${LD} -o $@ -rmf ${DBG_OBJS} ${DEBUGLIB} ${NET4LIBS} ${CLIB} ${ASMUTILS}
 	${MODSQZ} $@
 
 #
 # ROM Target 
 #
-${ROM_MODULE}: ${ROM_OBJS} ${UNIXLIB} ${INETLIB} ${SOCKLIB} o.dirs
+${ROM_MODULE}: ${ROM_OBJS} ${NET4LIBS} o.dirs
 	${MKDIR} aof
-	${LD} -o $@ -aof ${ROM_OBJS} ${ROMCSTUBS} ${UNIXLIB} ${INETLIB} ${SOCKLIB} ${ASMUTILS}
+	${LD} -o $@ -aof ${ROM_OBJS} ${ROMCSTUBS} ${NET4LIBS} ${ASMUTILS}
 	
 #
 # Final link for the ROM Image (using given base address)
