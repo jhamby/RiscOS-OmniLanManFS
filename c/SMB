@@ -1178,18 +1178,21 @@ static err_t ConnectServer ( hSHARE hS )
 
   /* Try to contact server */
 
+  debug0("NB_FormatName..\n");
   res = NB_FormatName ( ntSERVER, hSrv->servname, &nnserver );
   if ( res != OK )
     return res;
 
   /* Try to contact server */
 
+  debug0("NB_OpenSession..\n");
   res = NB_OpenSession( NB_MachineName, &nnserver, &(hSrv->hSession) );
   if ( res != OK )
     return res;
 
   /* Establish protocol */
 
+  debug0("SMB_Negotiate..\n");
   res = SMB_Negotiate ( hS );
   if ( res != OK )
     goto abort_server;
@@ -1199,11 +1202,14 @@ static err_t ConnectServer ( hSHARE hS )
   if (hSrv->ProtFlags & PROT_USERLOGON)
   {
     Xlt_Unjumble(hSrv->password);
+  debug0("SMB_SessSetup..\n");
     res = SMB_SessSetup ( hS, hSrv->username, hSrv->password );
     Xlt_Jumble(hSrv->password);
 
     if ( res != OK ) goto abort_server;
   }
+
+  debug0("ConnectServer succeeds\n");
 
   return OK;
 
@@ -1555,6 +1561,10 @@ err_t SMB_CreateShare (  int sharetype_in,
   err_t res;
 
   /* Validate & format parameters */
+#ifdef TRACE
+  debug2("Server name %p; share name %p\n", servname_in, sharename_in);
+  debug2("Server name `%s'; share name `%s'\n", servname_in, sharename_in);
+#endif
 
   if ( servname_in == NULL || sharename_in==NULL )
     return EBADPARAM;

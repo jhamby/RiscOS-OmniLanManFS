@@ -855,11 +855,13 @@ _kernel_oserror *fsentry_open( int *R )
 
   }
   else
+  {
     R[1] = 0;
-
 #ifdef LONGNAMES
-  NameCache_Flush(ncf_FSOPEN_EXIT);
+    /* Take a risk to enhance cacheing :-) */
+    NameCache_Flush(ncf_FSOPEN_EXIT);
 #endif
+  }
   return Xlt_Error(err);
 }
 

@@ -1244,7 +1244,7 @@ static NAME_ENTRY *FindRemoteName ( NETNAME *pnn )
   pNE->nn    = *pnn;   /* Copy name */
   pNE->pStatResp = NULL; /* for safety */
 
-  if (0) for ( i=3; i>=0; i-- )
+  for ( i=3; i>=0; i-- )
   {
     if ( i > 0 )  /* Send 3 broadcasts */
     {
@@ -1309,6 +1309,7 @@ static NAME_ENTRY *ValidatehName( hNAME hName )
   NAME_ENTRY *pN = (NAME_ENTRY *)hName;
   if ( pN != NULL )
   {
+          debug1("Status => %d\n", pN->status);
     if ( (pN->status == LCL_NAME_OK) || (pN->status == LCL_IN_CONFLICT) )
       return pN;
   }
@@ -1649,11 +1650,13 @@ EXPORT err_t _NB_OpenSession ( hNAME hLocalName, NETNAME *pnnFarEnd,
   int retargets=0;
 
   /* Check parameters */
+  debug0("ValidatehName..\n");
   lcl_end = ValidatehName(hLocalName);
   if ( lcl_end == NULL || lcl_end->status != LCL_NAME_OK )
     return EBADPARAM;
 
   /* Try to find remote end */
+  debug0("FindRemoteName..\n");
   far_end = FindRemoteName ( pnnFarEnd );
   if ( far_end == NULL )
     return ECANTFINDNAME;
@@ -1696,6 +1699,7 @@ EXPORT err_t _NB_OpenSession ( hNAME hLocalName, NETNAME *pnnFarEnd,
   /* Failed - don't even keep the remote name's IP address in cache */
   FreeSession(pNS);
   FreeNameEntry ( far_end );
+  debug1("NB_OpenSession(IP) returning (res=%d)\n", res);
   return res;
 }
 
@@ -2109,10 +2113,11 @@ EXPORT err_t _NB_Startup(void)
   EventsClaimed = true;
   debug0("Events claimed\n");
 
-  strcpy ( LM_Vars.drivername, "TCP/IP");
+//  strcpy ( LM_Vars.drivername, "TCP/IP");
 
   /* Now try to register name... */
 
+  debug1("Setting our local name as `%s'\n", LM_Vars.machinename);
   return _NB_AddLocalName ( ntMACHINE, LM_Vars.machinename, &NB_MachineName);
 }
 

@@ -135,5 +135,12 @@ command-keyword-table: LM_Command
     invalid-syntax: "Syntax:\t*Configure LMNameServer [IP address]\r",
     configure:,
     status:,
-                 )
+                 ),
+
+
+        Free(min-args:0, max-args:1,
+    help-text: "*Free displays the total free space on a LanManFS share",
+    invalid-syntax: "Syntax:\t*Free [<disc spec.>]\r",
+    fs-command:,
+                  )
 

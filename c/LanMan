@@ -294,6 +294,18 @@ static _kernel_oserror *Cmd_LANMAN ( const char *args )
 }
 
 /* --------------------- */
+static _kernel_oserror *Cmd_FREE ( const char *args )
+{
+  (void) args;
+  printf("Not immplemented yet\n");
+#ifdef TRACE
+  module_printf(NULL);
+#endif
+
+  return NULL;
+}
+
+/* --------------------- */
 
 static _kernel_oserror *Cmd_CONNECT ( const char *args )
 {
@@ -635,7 +647,7 @@ static _kernel_oserror *Cmd_NBNSIP( const char *args )
 
 typedef _kernel_oserror * (*CommandFnPtr) ( const char *args );
 
-#define MAX_CMDS 13
+#define MAX_CMDS 14
 static CommandFnPtr Cmd_Dispatch[MAX_CMDS] =
 {
   Cmd_LANMAN,
@@ -650,7 +662,8 @@ static CommandFnPtr Cmd_Dispatch[MAX_CMDS] =
   Cmd_LMSTATS,
   Cmd_FS,
   Cmd_LMTRANSPORT,
-  Cmd_NBNSIP
+  Cmd_NBNSIP,
+  Cmd_FREE
 };
 
 #ifdef TRACE
@@ -675,6 +688,7 @@ static void chk_commands(void)
   chk_a_command(Cmd_FS, CMD_FS);
   chk_a_command(Cmd_LMTRANSPORT, CMD_LMTransport);
   chk_a_command(Cmd_NBNSIP, CMD_LMNameServer);
+  chk_a_command(Cmd_FREE, CMD_Free);
 }
 #endif
 
@@ -1101,31 +1115,33 @@ static void LM_check_driver_status(_kernel_swi_regs *r)
 
         sprintf(if_name, "%-.8s%d", dib->dib_name, dib->dib_unit);
 
-	/*
-        printf("Service_DCIDriverStatus called (interface %s%d is %sing)\n"
+#ifdef TRACE
+        printf ("Service_DCIDriverStatus called (interface %s%d is %sing)\n"
         	"  Driver supports DCI version %d.%02d\n",
         	dib->dib_name, dib->dib_unit, r->r[2] ? "dy" : "start",
 		r->r[3] / 100, r->r[3] % 100
                 );
 
-        printf("We are looking for driver `%s' - got `%s'\n", LM_Vars.drivername,
+        printf ("We are looking for driver `%s' - got `%s'\n", LM_Vars.drivername,
         	if_name);
-        */
+#endif
 
         if (stricmp(LM_Vars.drivername, if_name) != 0) {
                 /* printf("Not interested\n"); */
                 return;
         }
         else {
-                /* printf("Ding!  This was our interface\n"); */
+                debug0("Ding!  This was our interface\n");
 		if (r->r[2] == 0) {
 		        if (LM_Vars.initialised ==  LMInitState_FullyInited) {
 		                LM_Finalise(0,0,0);
+		                LM_Declare();
 		        }
 	                LM_init_phase_2();
 		}
 		else if (r->r[2] == 1) {
 	                LM_Finalise(0,0,0);
+	                LM_Declare();
 		}
         }
 }
@@ -1138,15 +1154,22 @@ static void LM_check_internet_status(_kernel_swi_regs *r)
 {
         char *cp = (char *) r->r[3];
 
+	printf ("InternetStatus: %d %d %d %p %s\n", r->r[0], r->r[1], r->r[2], cp, cp);
+
+	if (r->r[0] == InternetStatus_AddressChanged) {
+	  goto testjump;
+	}
+
 	/* Was it the right reason code? */
 	if (r->r[0] != InternetStatus_InterfaceUpDown) return;
 	/* Was it the right interface? */
 	if (stricmp(LM_Vars.drivername, cp) != 0) return;
 	/* was the interface coming up? */
 	if (r->r[2] != 1) return;
-
+testjump:
 	if (LM_Vars.initialised == LMInitState_FullyInited) {
 	        LM_Finalise(0,0,0);
+                LM_Declare();
 	}
 	LM_init_phase_2();
 }
@@ -1162,3 +1185,58 @@ char *LM_Status(void)
         default: return "Dead";
         }
 }
+
+#ifdef TRACE
+/* Debugging routine.  If str is NULL, then the log is printed to 'f' (or stderr
+ * if f was NULL).  If f is NULL, the message is added to the log but not displayed
+ * on the screen.  If neither f nor str was NULL, the screen characteristcs are set
+ * to useful things (text window is reset, default colours restored and text origin
+ * restored to 0,0, and the message is printed to the screen and copied to tne log.
+ * A monotonic coumnter is incremented for each debug message logged.  Timestamps
+ * are stored in the log buffer too.
+ */
+#include <stdarg.h>
+int module_printf(const char *str, ...)
+{
+	static int callcount = 0;
+	static char pbuffer[65536];
+	static int pbufferptr = 0;
+	va_list ap;
+	int inblock[2];
+	FILE *f;
+
+	f=stderr;
+
+	if (f != NULL || str == NULL)  {
+		inblock[1] = -1;
+		inblock[0] = 132;
+		_swix(OS_ReadVduVariables, _INR(0,1), inblock, inblock);
+		_swix(OS_WriteC, _IN(0), 6);
+		if (inblock[0] > 20) {
+			int i;
+			for (i=0; i<0; ++i) (void) _kernel_osbyte(19,0,0);
+			_swix(OS_WriteN, _INR(0,1), "\x1a\x0c", 2);
+		}
+		_swix(OS_WriteC, _IN(0), 20);
+	}
+
+	if (!str) {
+		if (pbufferptr > 0) fprintf(f?f:stderr, "%s\n", pbuffer);
+		return 0;
+	}
+
+	++callcount;
+	if (f != NULL) {
+		fprintf(f, "(%4d) ", callcount);
+		va_start(ap, str);
+		vfprintf(f, str, ap);
+		va_end(ap);
+	}
+	va_start(ap, str);
+	_swix(OS_ReadMonotonicTime, _OUT(0), inblock);
+	pbufferptr += sprintf(pbuffer + pbufferptr, "(%8d) (%4d) ", inblock[0], callcount);
+	pbufferptr += vsprintf(pbuffer + pbufferptr, str, ap);
+	if (pbufferptr > 60000) pbufferptr = 0;
+	return 0;
+}
+#endif

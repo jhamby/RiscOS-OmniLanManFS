@@ -21,10 +21,10 @@
 */
 
 #ifdef DEBUG
-#define debug0(f) printf(f)
-#define debug1(f,a) printf(f,a)
-#define debug2(f,a,b) printf(f,a,b)
-#define debug3(f,a,b,c) printf(f,a,b,c)
+#define debug0(f) printf (f)
+#define debug1(f,a) printf (f,a)
+#define debug2(f,a,b) printf (f,a,b)
+#define debug3(f,a,b,c) printf (f,a,b,c)
 #else
 #define debug0(f)
 #define debug1(f,a)
@@ -161,7 +161,7 @@ typedef struct
 
 /* RISCOS attributes */
 
-#define ROA_READ   1
+#define ROA_READ   ((1<<0) | (1<<4))
 #define ROA_WRITE  2
 #define ROA_LOCKED 8
 

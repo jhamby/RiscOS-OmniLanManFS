@@ -394,7 +394,20 @@ static err_t BootMount ( NAMELIST *pNLmount )
 
   /* Attempts to run a !ArmBoot file or applicationn, if it exists */
 
+  if (1) {
+    int key;
+    (void) _swix(OS_Byte, _INR(0,2)|_OUT(1), 129, 255, 255, &key);
+    if (key == 255) {
+       /* SHIFT was depressed */
+       return OK;
+    }
+  }
+
   sprintf ( work_buf, "%c\\!ARMBOOT", pNLmount->u.mount.smb_lettr );
+
+#ifdef TRACE
+  debug1("BootMount looking for %s\n", work_buf);
+#endif
 
   /* If no such file or directory, we can stop now */
   if ( SMB_GetAttribs ( work_buf, &dummy ) != OK )
@@ -439,6 +452,10 @@ err_t Omni_MountServer ( char *servname, char *userID, char *passwd,
 
   *mount_id_out = 0;
 
+#ifdef TRACE
+  debug3("Omni_MountServer: %p %p %p\n", mountname, servname, mountpath);
+#endif
+
   if ( mountname == NULL || servname == NULL || mountpath == NULL )
     return EBADPARAM;
 
@@ -465,6 +482,9 @@ err_t Omni_MountServer ( char *servname, char *userID, char *passwd,
 
   if ( res != OK ) /* Didn't work. Forget it */
   {
+#ifdef TRACE
+    debug0("SMB_CreateShare failed\n");
+#endif
     DeleteFromList ( &MountsList, pNLmount );
     return res;
   }
