@@ -2064,6 +2064,8 @@ EXPORT err_t _NB_Startup(void)
       printf("  Couldn't find IP address for interface '%s'\n",
         LM_Vars.drivername );
     }
+    (void) socketclose(NBNS_Socket);
+    NBNS_Socket = INVALID_SOCKET;
     return ENOIFADDR;
   }
 
@@ -2092,10 +2094,12 @@ EXPORT err_t _NB_Startup(void)
   sa.sin_port   = htons(NBNS_PORT);
   sa.sin_addr.s_addr = INADDR_ANY;
 
-  if ( bind( NBNS_Socket, (struct sockaddr *)&sa, sizeof(sa) ) != 0 )
+  if ( bind( NBNS_Socket, (struct sockaddr *)&sa, sizeof(sa) ) < 0 )
   {
     /* Socket will be closed on exit */
     debug0("Couldn't bind socket\n");
+    (void) socketclose(NBNS_Socket);
+    NBNS_Socket = INVALID_SOCKET;
     return ENOSOCKETS;
   }
 

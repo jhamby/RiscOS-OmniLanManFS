@@ -641,11 +641,11 @@ static const char lanmanfs_lookup_table[257]=
 
 static const char lanmanfs_inverse_lookup_table[257]=
      "________________________________"
-     "\xa0!\"?$%+'()*+,-\\.0123456789:;<=>#"
+     "\x20!\"?$%+'()*+,-\\.0123456789:;<=>#"
      "=ABCDEFGHIJKLMNOPQRSTUVWXYZ[.],_"
      "`abcdefghijklmnopqrstuvwxyz{|}~_"
      "€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ"
-     "\xa0¡¢£¤¥¦§¨©ª«¬­®¯°±²³´µ¶·¸¹º»¼½¾¿"
+     "\x20¡¢£¤¥¦§¨©ª«¬­®¯°±²³´µ¶·¸¹º»¼½¾¿"
      "ÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖ×ØÙÚÛÜÝÞß"
      "àáâãäåæçèéêëìíîïðñòóôõö÷øùúûüýþÿ";
 
@@ -654,9 +654,9 @@ static const char lanmanfs_inverse_lookup_table[257]=
  * wildcard resolution code function correctly.
  */
 static const char lanmanfs_contentious_characters[]=
-     "+=><,\xa0";
+     "+=><,\x20";
 static const char lanmanfs_contentious_pairing[]=
-     "&@%$^\x20";
+     "&@%$^\xa0";
 
 /* Translate DOS names to RISC OS names using the translation table
  *
