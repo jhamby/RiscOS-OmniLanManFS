@@ -1010,8 +1010,10 @@ static void NameStatusReply ( struct NBNS_packet *pNBP,
 
   while( pSR->spaces_left > 0  && n-- > 0 )
   {
+#ifdef DEBUG
     char namebuf[32];
     dprintf((__FILE__, "Found %s\n", debug_name_buf(dp, namebuf)));
+#endif
     /* dp points to a network name */
     if ( pSR->nt_search == ANY_NAME_TYPE ||
          pSR->nt_search == dp[15] )
@@ -1201,7 +1203,9 @@ int EventFn_handler ( _kernel_swi_regs *R, void *pw )
   (void) pw;
 
   if ( R->r[0] == Internet_Event &&
+       R->r[1] == 1 && /* ensure it was the data arrived event! */
        R->r[2] == NBNS_Socket &&
+       NBNS_Socket != INVALID_SOCKET &&
        !CallbackSet )
   {
     STAT(STA_IP_EVENTS);
@@ -1224,7 +1228,7 @@ int NBIP_CallbackFn_handler(void)
 
   CallbackSet = false;
 
-  while (1) /* Do as many packets as we can */
+  while (NBNS_Socket != INVALID_SOCKET) /* Do as many packets as we can */
   {
     tv.tv_sec=0;
     tv.tv_usec=0;
@@ -2201,6 +2205,36 @@ static void _NB_InternetGone(void)
       NB_Sessions[i].LinkOK = false;
     }
   }
+
+  NBNS_Socket = INVALID_SOCKET;
+}
+
+/* NB_InternetInit() ---------------------------
+
+  The Internet module has arrived.  Mark all sessions as disconnected and
+  try to re-initialise things.  However, we must be careful - only do this
+  if we saw the old Internet module dying, because this might just be the
+  main ROM one sending the service call on a callback.  We must only reinit
+  if we saw a dying service call.
+
+ */
+
+static void _NB_InternetInit(void)
+{
+  if (NBNS_Socket == INVALID_SOCKET)
+  {
+
+    int i;
+
+    for (i=0; i < MAX_SESSIONS; ++i) {
+      if (NB_Sessions[i].status == SESS_CONNECTED) {
+        NB_Sessions[i].sid = -1;
+        NB_Sessions[i].LinkOK = false;
+      }
+    }
+
+    _NB_Startup();
+  }
 }
 
 /* Setup routine ------------------------------- */
@@ -2230,6 +2264,5 @@ void NB_NBIP_Setup ( void )
   p->pfnFindNames = _NB_FindNames;
   p->pfnDescribeLink = _NB_DescribeLink;
   p->pfnInternetGone = _NB_InternetGone;
+  p->pfnInternetInit = _NB_InternetInit;
 }
-
-

@@ -97,6 +97,7 @@ struct NETBIOS_TRANSPORT
                           int timeout );
   char * (*pfnDescribeLink) ( hSESSION hS );
   void   (*pfnInternetGone) ( void );
+  void   (*pfnInternetInit) ( void );
 };
 
 /* Definitions for supplied transports ------------------------- */
@@ -135,3 +136,4 @@ extern void NB_NBIP_Setup(void);
 #define NB_DescribeLink(a)	(NB_ActiveTransport->pfnDescribeLink(a))
 
 #define NB_InternetGone(a)	(NB_ActiveTransport->pfnInternetGone(a))
+#define NB_InternetInit(a)	(NB_ActiveTransport->pfnInternetInit(a))

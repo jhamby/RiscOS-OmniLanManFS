@@ -1344,6 +1344,14 @@ static void _NB_InternetGone(void)
 }
 
 
+/* NB_InternetGone() --------------------------- */
+
+static void _NB_InternetInit(void)
+{
+  /* We don't care - we're the protocol module? */
+}
+
+
 /* Setup routine ------------------------------- */
 
 static struct NETBIOS_TRANSPORT NetBEUI_Transport;
@@ -1371,5 +1379,6 @@ void NB_NetBEUI_Setup ( void )
   p->pfnFindNames = _NB_FindNames;
   p->pfnDescribeLink = _NB_DescribeLink;
   p->pfnInternetGone = _NB_InternetGone;
+  p->pfnInternetInit = _NB_InternetInit;
 }
 #endif

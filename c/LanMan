@@ -1290,6 +1290,9 @@ static void LM_check_protocol_status(_kernel_swi_regs *r)
   if (r->r[2] == protocolstatus_TERMINATING && strcmp(proto, "Internet") == 0) {
     NB_InternetGone();
   }
+  else if (r->r[2] == protocolstatus_STARTING && strcmp(proto, "Internet") == 0) {
+    NB_InternetInit();
+  }
 }
 
 
