@@ -618,10 +618,13 @@ static const char lanmanfs_inverse_lookup_table[257]=
      "àáâãäåæçèéêëìíîïðñòóôõö÷øùúûüýþÿ";
 
 
+/* These two structures MUST be kept in step in order to allow the
+ * wildcard resolution code function correctly
+ */
 static const char lanmanfs_contentious_characters[]=
      "+=><,\xa0";
-//static const char lanmanfs_contentious_pairing[]=
-//     "&@%$^\x20";
+static const char lanmanfs_contentious_pairing[]=
+     "&@%$^\x20";
 
 static void Xlt_NameDOStoROX2 ( char *dst, char *src, RISCOS_ATTRIBS *pRA )
 {
@@ -679,90 +682,116 @@ static int Xlt_CopyViaInverseTable( char *dst, const char *src, int blat )
   return wild_count;
 }
 
-static err_t Xlt_LookupNameROtoDOSX2 ( char *dst, char *src )
+typedef struct {
+        char *dstcpy;
+        char dstcpybuf[DOS_NAME_LEN + 4];
+        char matchbuf[DOS_NAME_LEN + 4];
+} Xlt_NXCX2_Data;
+
+/* An unusual routine.  The SMB_ReadDirectoryEntriesX2 routine calls this
+ * function back in order to process each directory entry as it is
+ * discovered whilst we are searching for filename matches.  In order to
+ * get that routine to stop when we have found a match, we return it a
+ * value of EOUTOFMEM.  If we want it to continue, we return OK.
+ */
+static err_t Xlt_NameXlateCallbackX2 ( BYTE *entry, int format, void *_dst )
 {
-  static char NameBuf[DOS_NAME_LEN + 4];
-  DOS_ATTRIBS dos_attr;
-  int i, wild_count;
-  char *eos;
-  int already_has_extn = 0;
+    Xlt_NXCX2_Data *dst = _dst;
+    char *eptr = (char *) (entry + 23);
+    char *dptr = 1 + strrchr(dst->matchbuf, '\\');
+    err_t res = OK;
 
-  eos = strchr(src, '\0');
-  if ((eos - src) >= 5) {
-    int len, type;
-    if (sscanf(eos-4, ",%x%n", &type, &len) == 1 && len == 3) {
-      already_has_extn = 1;
+    debug3("Xlt_NameXlateCallbackX2: checking `%s', against `%s' in `%s'\n",
+        (char *) entry + 23,
+        dptr,
+    	dst->dstcpybuf);
+
+    for (;;) {
+      char e = *eptr++;
+      char d = *dptr++;
+
+      if (e == d || toupper(e) == toupper(d)) {
+        if (e) continue;
+        /* We have a match */
+        res = EOUTOFMEM;
+        break;
+      }
+      else if (e == ',' && d == 0) {
+        /* Might have been a filetype suffix */
+        int type, num;
+        if ((sscanf(eptr, "%x%n", &type, &num) == 1 && num == 3)
+          || strcmp(eptr, FileString_DeadFile) == 0
+          || strcmp(eptr, FileString_UntypedFile) == 0) {
+          /* It was */
+          res = EOUTOFMEM;
+          break;
+        }
+      }
+      else {
+        int i;
+
+        for (i=0; lanmanfs_contentious_characters[i]; ++i) {
+          if ((e == lanmanfs_contentious_characters[i] ||
+               e == lanmanfs_contentious_pairing[i]) &&
+              (d == lanmanfs_contentious_characters[i] ||
+               d == lanmanfs_contentious_pairing[i])) {
+            break; /* OK! */
+          }
+        }
+        if (lanmanfs_contentious_characters[i] == 0) return OK;
+      }
     }
-  }
 
-  NameBuf[0] = *dst++; /* Copy the A: bit of the name */
-  NameBuf[1] = *dst++;
-  wild_count = Xlt_CopyViaInverseTable(NameBuf+2, src, 0);
-  strcpy(dst, NameBuf+2);
-
-  debug1("Looking for %s\n", NameBuf);
-
-  if (SMB_GetAttribs(NameBuf, &dos_attr) == OK) {
-    debug0("Found verbatim\n");
-    return OK;
-  }
-
-  eos = strchr(NameBuf, '\0');
-  if (!already_has_extn) {
-    strcpy(eos, ",???");
-    debug1("Looking for %s\n", NameBuf);
-    if (SMB_GetAttribs(NameBuf, &dos_attr) == OK) {
-      strcpy(dst, NameBuf+2);
-      debug0("Had a type\n");
-      return OK;
+    if (res == EOUTOFMEM) {
+      strcpy(dst->dstcpy, (char *) entry+23);
     }
-  }
-
-  *eos = '\0';
-  if (wild_count == 0) return OK;
-
-  Xlt_CopyViaInverseTable(NameBuf+2, src, 1); /* Blat with wildcards */
-
-  debug1("Looking for %s\n", NameBuf);
-  if (SMB_GetAttribs(NameBuf, &dos_attr) != OK) {
-    if (!already_has_extn) {
-      Xlt_CopyViaInverseTable(dst, src, 0);
-      return ENOTPRESENT;
-    }
-    strcpy(NameBuf+i, ",???");
-    debug1("Looking for %s\n", NameBuf);
-    if (SMB_GetAttribs(NameBuf, &dos_attr) != OK) {
-      Xlt_CopyViaInverseTable(dst, src, 0); /* Unblat */
-      return ENOTPRESENT;
-    }
-    debug0("Had a type\n");
-  }
-  debug0("Had contentious characters\n");
-  strcpy(dst, NameBuf+2);
-  return OK;
-}
-
-static err_t Xlt_NameXlateCallbackX2 ( BYTE *entry, int format, void *dst )
-{
-    strcpy(dst, (char *) entry+23);
-    debug1("Xlt_NameXlateCallbackX2: `%s'\n", dst);
-    return EOUTOFMEM; /* Match first only */
+    return res;
 }
 
 static err_t Xlt_NameROtoDOSX2 ( char *dst, char *src )
 {
+  static Xlt_NXCX2_Data private;
+  char *inptr;
+  err_t status;
+
+  private.matchbuf[0] = dst[0];
+  private.matchbuf[1] = dst[1];
+  Xlt_CopyViaInverseTable(private.matchbuf + 2, src, 0);
+  debug0("\n\n");
   debug1("Xlt_NameROtoDOSX2: `%s'\n", src);
-  if (Xlt_LookupNameROtoDOSX2 ( dst, src ) == OK) {
-    /* Need to perform a search to find the exact name now */
-    static char dstcpy[DOS_NAME_LEN];
-    err_t res;
-    debug1("Searching for a match for `%s'\n", dst);
-    strcpy(dstcpy, dst); /* Copy the wildcarded filespec */
-    res = SMB_ReadDirEntries(dstcpy, 1, Xlt_NameXlateCallbackX2,
-      1 + strrchr(dstcpy, '\\'));
-    strcpy(dst, dstcpy);
-    debug1("End of search for a match - result `%s'\n", dst);
+  debug1("Xlt_CopyViaInverseTable -> `%s'\n", private.matchbuf);
+  strcpy(private.dstcpybuf, private.matchbuf);
+  private.dstcpy = strrchr(private.dstcpybuf, '\\');
+  if (private.dstcpy) {
+    strcpy(++private.dstcpy, "*");
   }
+  else {
+    private.dstcpy = strchr(private.dstcpybuf, '\0');
+    strcpy(private.dstcpy, "\\*");
+  }
+
+  debug1("Xlt_NameROtoDOSX2 initiates a dir search of `%s'\n",
+    private.dstcpybuf);
+
+  for (status = OK, inptr = private.dstcpybuf; status == OK; inptr = NULL) {
+    status = SMB_ReadDirEntries(inptr, 512, Xlt_NameXlateCallbackX2,
+      &private);
+    switch (status) {
+      case OK:
+        break;
+      case EOUTOFMEM:
+        /* Found it */
+        strcpy(dst, private.dstcpybuf);
+        debug1("\n**RIGHT.  Got a match: `%s'\n", dst);
+        break;
+      default:
+        /* Definitely didn't find it - revert to original filename */
+        strcpy(dst, private.matchbuf);
+        debug1("\n**WRONG.  Not got a match. Reverting to `%s'\n", dst);
+        break;
+    }
+  }
+
   return OK;
 }
 #endif
@@ -1004,19 +1033,18 @@ err_t Xlt_SplitLeafnameX2 ( char *leafname, RISCOS_ATTRIBS *pRA,
   err_t res = ENOTPRESENT;
   const int fff00 = 0xFFF00;
 
-
   pRA->loadaddr = pRA->loadaddr | (fff00) | 0xFFF00000;
   *terminator = NULL;
   if (leafname == NULL) {
     return res;
   }
-  debug1("Xlt_SplitLeafnameX2(%s,....)\n", leafname);
+  debug1("Xlt_SplitLeafnameX2(\"%s\",....)\n", leafname);
   term = strchr(leafname, '\0');
   if ((term - leafname) < 5) return res;
   leafname = term - 4;
   if (leafname[0] != FileChar_TypedNamePrefix) return res;
   if (stricmp(leafname+1, FileString_UntypedFile) == 0) {
-    pRA->loadaddr = pRA->execaddr = 0;
+    pRA->loadaddr = pRA->execaddr = 0x03800000;
     *terminator = leafname;
     res = OK;
   }
