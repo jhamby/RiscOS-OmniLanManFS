@@ -453,7 +453,7 @@ static char xlt_DOS2RO[256] =
   '`',    'a',    'b',    'c',    'd',    'e',    'f',    'g',
   'h',    'i',    'j',    'k',    'l',    'm',    'n',    'o',
   'p',    'q',    'r',    's',    't',    'u',    'v',    'w',
-  'c',    'y',    'z',    '{',    CH_DUD, '}',    '~',     CH_DUD,
+  'x',    'y',    'z',    '{',    CH_DUD, '}',    '~',     CH_DUD,
 
   CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
   CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
@@ -522,6 +522,47 @@ void Xlt_NameDOStoRO ( char *dst, char *src )
 
   *dst = 0;
 }
+
+#ifdef LONGNAMES
+/* Originally, this came from NFS(pathmunge.c):move_nfsname_to_riscos_name */
+static const char nfs_lookup_table[257]=
+                                    "________________________________"
+                                    " !\"_<__'()_+,-//0123456789_;<=>?"
+                                    "_ABCDEFGHIJKLMNOPQRSTUVWXYZ[_]__"
+                                    "`abcdefghijklmnopqrstuvwxyz{|}~_"
+                                    "€‚ƒ„…†‡‰‹‘’“”•–—™›"
+                                    " ΅Ά£¤¥¦§¨©ª«¬­®―°±²³΄µ¶·ΈΉΊ»Ό½ΎΏ"
+                                    "ΐΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡÒΣΤΥΦΧΨΩΪΫάέήί"
+                                    "ΰαβγδεζηθικλμνξοπρςστυφχψωϊϋόύώÿ";
+
+void Xlt_NameDOStoROX2 ( char *dst, char *src )
+{
+  int i;
+
+  for ( i=0; i<255; i++ )      /* No limit on length, except 255 chars */
+  {
+    int c = src[i] & 0xFF;
+    if (c == 0) break;
+    *dst++ = nfs_lookup_table[c];
+  }
+
+  *dst = 0;
+}
+
+//void Xlt_NameROtoDOSX2 ( char *dst, char *src )
+//{
+//  int i, c;
+//
+//  for ( i=0; i<255; i++ )      /* No limit on length, except 255 chars */
+//  {
+//    c = src[i] & 0xFF;
+//    if (c == 0) break;
+//    *dst++ = nfs_lookup_inverse_table[c];
+//  }
+//
+//  *dst = 0;
+//}
+#endif
 
 /* --------------------------- */
 
@@ -600,6 +641,18 @@ err_t Xlt_ExpandSearchEntry ( BYTE *entry, char *path_base,
             DOS_ATTRIBS *da_out,
             RISCOS_ATTRIBS *ra_out )
 {
+  /* Old SMBsearch format.  For reference, entry points to the following
+   * structure (treat strictly as byte array with no padding except where
+   * stated:
+   *  BYTE find_buf_attr;
+   *  WORD find_buf_time;
+   *  WORD find_buf_date;
+   *  WORD find_buf_size_l;
+   *  WORD find_buf_size_h;
+   *  BYTE find_buf_pname[13];  ASCII - NUL terminated
+   * =====
+   *   22  bytes.
+   */
   DOS_ATTRIBS da;
 
   if ( entry == NULL )
@@ -630,6 +683,62 @@ err_t Xlt_ExpandSearchEntry ( BYTE *entry, char *path_base,
 
   return OK;
 }
+
+#ifdef LONGNAMES
+err_t Xlt_ExpandSearchEntryX2 ( BYTE *entry, char *path_base,
+            char *name_out,
+            DOS_ATTRIBS *da_out,
+            RISCOS_ATTRIBS *ra_out )
+{
+  /* New TRANSACT2/FINDFIRST format.  For reference, entry points to the
+   * following structure (treat strictly as byte array with no padding
+   * except where stated:   (SMB_DATE and SMB_TIME are actually WORD)
+   *
+   * WORD   CreationDate
+   * WORD   CreationTime
+   * WORD   LastAccessDate
+   * WORD   LastAccessTime
+   * WORD   LastWriteDate
+   * WORD   LastWriteTime
+   * DWORD  DataSize
+   * DWORD  AllocationSize
+   * WORD   Attributes
+   * BYTE   FilenameLength
+   * STRING FileName
+   * =====
+   */
+  DOS_ATTRIBS da;
+
+  if ( entry == NULL )
+    return EBADPARAM;
+
+  if ( name_out != NULL )
+  {
+    Xlt_NameDOStoROX2 ( name_out, (char *)entry+23 );
+  }
+
+  if ( da_out != NULL || ra_out != NULL )
+  {
+    da.attr   = entry[20];
+    da.utime  = DMYtoUtime ( 0, //entry[8] + (entry[9] << 8),
+                          entry[10] + (entry[11] << 8) );
+    da.length = entry[12] + (entry[13]<<8) +
+                       (entry[14]<<16) + (entry[15]<<24);
+
+    if ( da_out != NULL )
+      *da_out = da;
+
+    if ( ra_out != NULL )
+    {
+      Xlt_CnvDOStoRO ( &da, ra_out, CNV_DATETIME+CNV_ATTRIBS );
+      Attr_GetInfo ( path_base, (char *)entry+23, ra_out );
+
+    }
+  }
+
+  return OK;
+}
+#endif
 
 /* Error translation =========================================== */
 

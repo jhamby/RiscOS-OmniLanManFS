@@ -40,6 +40,9 @@ typedef enum { false, true } bool;
 typedef unsigned char      BYTE;
 typedef unsigned short int WORD;
 typedef unsigned int       LONG;
+#ifdef LONGNAMES
+typedef unsigned int       DWORD;
+#endif
 
 /* General purpose */
 

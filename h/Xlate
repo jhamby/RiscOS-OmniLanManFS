@@ -55,6 +55,11 @@ extern err_t Xlt_ExpandSearchEntry ( BYTE *entry,
             char *name_out,
             DOS_ATTRIBS *pOutDA,
             RISCOS_ATTRIBS *pOutRA );
+extern err_t Xlt_ExpandSearchEntryX2 ( BYTE *entry,
+            char *DOS_pathname,
+            char *name_out,
+            DOS_ATTRIBS *pOutDA,
+            RISCOS_ATTRIBS *pOutRA );
 
 
 extern err_t Xlt_SetDefaultDrv ( char *path );

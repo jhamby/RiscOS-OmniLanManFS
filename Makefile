@@ -45,7 +45,7 @@ CD	= dir
 CPFLAGS = ~cfr~v
 WFLAGS  = ~c~v
 
-DFLAGS    = -UDEBUG -UTML -DCOMPAT_INET4
+DFLAGS    = -UTML -DCOMPAT_INET4 -DLONGNAMES
 AFLAGS    = -depend !Depend ${THROWBACK} -Stamp -quit
 CFLAGS    = -depend !Depend ${THROWBACK} -c -Wpc -ff -zps1 -zM ${INCLUDES},. ${DFLAGS}
 CMHGFLAGS = -depend !Depend ${THROWBACK} -p
@@ -67,27 +67,31 @@ UNIXLIB   = TCPIPLibs:o.unixlibzm
 
 
 OBJS      = LanMan.o Omni.o Logon.o CoreFn.o Printers.o \
-            Xlate.o Interface.o RMInfo.o buflib.o \
+            Xlate.o Interface.o RMInfo.o buflib.o Transact.o \
             LLC.o NetBIOS.o SMB.o Errors.o Attr.o RPC.o NBIP.o Stats.o LanMan_MH.o
 
 ROM_OBJS  = or.LanMan or.Omni or.Logon or.CoreFn or.Printers \
-            or.Xlate or.buflib  Interface.o RMInfo.o Errors.o \
+            or.Xlate or.buflib  Interface.o RMInfo.o Errors.o or.Transact \
             or.LLC or.NetBIOS or.SMB or.Attr or.RPC or.NBIP or.Stats LanMan_MH.o 
 
-DBG_OBJS  = od.LanMan od.Omni od.Logon od.CoreFn od.Printers \
-            od.Xlate od.buflib  Interface.o RMInfo.o Errors.o \
-            od.LLC od.NetBIOS od.SMB od.Attr od.RPC od.NBIP od.Stats LanMan_MH.o 
+#DBG_OBJS  = od.LanMan od.Omni od.Logon od.CoreFn od.Printers \
+#            od.Xlate od.buflib  Interface.o RMInfo.o Errors.o o.Transact \
+#            od.LLC od.NetBIOS od.SMB od.Attr od.RPC od.NBIP od.Stats LanMan_MH.o 
+
+DBG_OBJS  = od.LanMan o.Omni od.Logon od.CoreFn od.Printers \
+            od.Xlate od.buflib  Interface.o RMInfo.o Errors.o od.Transact \
+            od.LLC o.NetBIOS od.SMB o.Attr od.RPC o.NBIP od.Stats LanMan_MH.o 
 
 OBJSI     = i.LanMan i.Omni i.Logon i.CoreFn i.Printers \
-            i.Xlate i.buflib \
+            i.Xlate i.buflib i.Transact \
             i.LLC i.NetBIOS i.SMB i.Attr i.RPC i.NBIP i.Stats
 
 OBJSINST  = LanMan_MH.o inst.LanMan inst.Omni inst.Logon inst.CoreFn inst.Printers \
-            inst.Xlate inst.buflib Interface.o RMInfo.o Errors.o \
+            inst.Xlate inst.buflib Interface.o RMInfo.o Errors.o inst.Transact\
             inst.LLC inst.NetBIOS inst.SMB inst.Attr inst.RPC inst.NBIP inst.Stats
 
 LanMan_MH.h: LanMan_MH.o
-	@|
+	${CMHG} ${CMHGFLAGS} cmhg.$* -d $@
 
 #
 # Rule patterns
@@ -95,7 +99,7 @@ LanMan_MH.h: LanMan_MH.o
 .SUFFIXES:  .o .od .or .s .c .i .h .cmhg .inst
 .c.o:;      ${CC} ${CFLAGS} -o $@ $<
 .c.or:;      ${CC} ${CFLAGS} -DROM -o $@ $<
-.c.od:;      ${CC} ${CFLAGS} -DTRACE -o $@ $<
+.c.od:;      ${CC} ${CFLAGS} -DDEBUG -DTRACE -o $@ $<
 .c.i:;		$(CC) $(CFLAGS) -c -C -E $< >> $@
 .i.inst:;	$(CC) $(CFLAGS) -C++ -o $@ $<
 .cmhg.o:;   ${CMHG} ${CMHGFLAGS} -o $@ $< -d $*.h
@@ -162,7 +166,7 @@ ${RAM_MODULE}: ${OBJS} o.dirs
 
 ${DBG_MODULE}: ${DBG_OBJS} o.dirs
 	${MKDIR} rm
-	${LD} -o $@ -rmf $DBG_{OBJS} ${UNIXLIB} ${INETLIB} ${SOCKLIB} ${CLIB}
+	${LD} -o $@ -rmf ${DBG_OBJS} ${UNIXLIB} ${INETLIB} ${SOCKLIB} ${CLIB}
 	${MODSQZ} $@
 
 #
@@ -177,7 +181,6 @@ ${ROM_MODULE}: ${ROM_OBJS} ${UNIXLIB} ${INETLIB} ${SOCKLIB} o.dirs
 #
 rom_link:
 	${MKDIR} linked
-	${MKDIR} map
 	${LD} -o linked.${COMPONENT} -rmf -base ${ADDRESS} ${ROM_MODULE} ${ABSSYM}
 	${CP} linked.${COMPONENT} ${LINKDIR}.${COMPONENT} ${CPFLAGS}
 	@echo ${COMPONENT}: rom_link complete
