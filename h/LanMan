@@ -26,18 +26,12 @@
 
 #define FilingSystemName                "LanMan"
 #define Our_FS_Number                   102
-#define LanMan_SWI_base                 0x49240
-#define SWI_LanMan_OmniOp   (LanMan_SWI_base + 0)
-#define SWI_LanMan_FreeOp   (LanMan_SWI_base + 1)
-#define SWI_LanMan_NameOp   (LanMan_SWI_base + 2)
-#define SWI_LanMan_Transact (LanMan_SWI_base + 3)
-#define SWI_LanMan_LogonOp  (LanMan_SWI_base + 4)
 
 
 #define FSControl_AddFilingSystem       12
 #define FSControl_SelectFilingSystem    14
 #define FSControl_RemoveFilingSystem    16
-#define Information_Block_Size          11
+#define Information_Block_Size          12
 
 #define INFO_SPECIALFIELD               0x80000000
 #define INFO_INTERACTIVE                0x40000000
@@ -55,8 +49,11 @@
 #define INFO_USE_FUNC9                  0x00040000
 #define INFO_EXTRA_INFO                 0x00020000
 
+#define INFO2_SUPPORTS_IOCTL            0x00000008
 
-#define Information_Word                (Our_FS_Number|INFO_FILE_TIME)
+
+#define Information_Word                (Our_FS_Number|INFO_FILE_TIME|INFO_EXTRA_INFO)
+#define Information2_Word               (INFO2_SUPPORTS_IOCTL)
 #define Service_FSRedeclare             0x40
 #define Service_ResourceFSStarting      0x000060
 #define ASpace                          ' '
@@ -78,12 +75,6 @@ extern const int *Image_RO_Base;
 /*
         These routines get used by the cmhg generated header.
 */
-
-extern _kernel_oserror *LM_Command( char *, int, int, void * );
-extern _kernel_oserror *LM_Swi( int, _kernel_swi_regs *, void * );
-extern void LM_Service( int, _kernel_swi_regs *, void * );
-extern _kernel_oserror *LM_Initialise( char *, int, void * );
-extern _kernel_oserror *LM_Finalise( int fatal, int podule, void *pw );
 
 extern int LM_pw;
 

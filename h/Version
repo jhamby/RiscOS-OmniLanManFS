@@ -111,5 +111,5 @@
 *  1.86 28-Jul-98 RCE Added support for NetBIOS Name Server IP address in CMOS
 */
 
-#define VERSION_STRING "1.86 (28-Jul-98)"
+#define VERSION_STRING Module_VersionString " (" Module_Date ")"
 

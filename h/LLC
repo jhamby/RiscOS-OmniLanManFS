@@ -47,7 +47,7 @@ typedef void (*LLC_RCV_PROC) ( HCONN hc, BUFCHAIN data, void *private );
 /* Connection for LLC-level streams ******************** */
 
 extern bool  LLC_Init ( void );
-extern err_t LLC_AttachDriver ( char *drivername );
+extern err_t LLC_AttachDriver ( char *drivername, const NETADDR *multi_hw );
 extern void  LLC_Shutdown ( void );
 
 /* UI (Datagram) service */
@@ -73,7 +73,7 @@ extern int  LLC_GetMTU (void);
 extern void          LLC_BackgroundProcess(void);
 extern NETADDR       LLC_MachineAddress;
 extern volatile int  LLC_TickerTime;
-extern int LLC_CallbackFn_handler(void);
+/*extern int LLC_CallbackFn_handler(void);*/
 
 /* Timers ------------- */
 
@@ -111,6 +111,7 @@ extern void TimerClear
 
 /* Exports used by CMHG veneers */
 
+/*
 extern int CallbackFn_handler(void);
 extern int TickerFn_handler ( _kernel_swi_regs *R, int pw );
 extern int ReceiveFn_handler ( _kernel_swi_regs *R, int pw );
@@ -126,3 +127,4 @@ extern int ReceiveFn_handler ( _kernel_swi_regs *R, int pw );
 
 
 
+*/

@@ -21,10 +21,10 @@
 */
 
 #ifdef DEBUG
-#define debug0(f) printf(f)
-#define debug1(f,a) printf(f,a)
-#define debug2(f,a,b) printf(f,a,b)
-#define debug3(f,a,b,c) printf(f,a,b,c)
+#define debug0(f) printf (f)
+#define debug1(f,a) printf (f,a)
+#define debug2(f,a,b) printf (f,a,b)
+#define debug3(f,a,b,c) printf (f,a,b,c)
 #else
 #define debug0(f)
 #define debug1(f,a)
@@ -40,6 +40,9 @@ typedef enum { false, true } bool;
 typedef unsigned char      BYTE;
 typedef unsigned short int WORD;
 typedef unsigned int       LONG;
+#ifdef LONGNAMES
+typedef unsigned int       DWORD;
+#endif
 
 /* General purpose */
 
@@ -152,12 +155,13 @@ typedef struct
   int  attr;
   uint utime;
   int  length;
+  int  riscos_type;
 }
   DOS_ATTRIBS;
 
 /* RISCOS attributes */
 
-#define ROA_READ   1
+#define ROA_READ   ((1<<0) | (1<<4))
 #define ROA_WRITE  2
 #define ROA_LOCKED 8
 

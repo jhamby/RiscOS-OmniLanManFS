@@ -131,6 +131,3 @@
 #define NBIP_SESS_RETARGET  0x84
 #define NBIP_SESS_KEEPALIVE 0x85
 
-extern int EventFn_handler ( _kernel_swi_regs *R, int pw );
-extern int CallbackFn_handler (void);
-extern int NBIP_CallbackFn_handler(void);

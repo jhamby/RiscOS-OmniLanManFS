@@ -38,11 +38,13 @@
 
 #include "stdtypes.h"
 #include "mbuf.h"
-#include "dci4.h"
+#include "sys/dcistructs.h"
 #include "buflib.h"
 #include "llc.h"
 #include "stats.h"
 #include "lanman.h"  /* For LM_pw value */
+
+#include "LanMan_MH.h"
 
 #ifdef DEBUG
   #ifdef TML
@@ -123,10 +125,10 @@ typedef struct
 
 static bool CallbackSet = false;
 
-extern void LLC_CallbackFn(void);
-
-int LLC_CallbackFn_handler(void)
+int LLC_CallbackFn_handler(_kernel_swi_regs *r, void *pw)
 {
+  (void) r;
+  (void) pw;
   CallbackSet = false;
   LLC_BackgroundProcess();
   return 1;
@@ -276,7 +278,7 @@ restart:
    interrupting anything until the callback is complete.
 */
 
-int TickerFn_handler ( _kernel_swi_regs *R, int pw )
+int TickerFn_handler ( _kernel_swi_regs *R, void *pw )
 {
   struct Timer *pT;
 
@@ -331,6 +333,9 @@ static BUFQUEUE LLC_RxRawQueue;
 static int      Net_DriverSWIbase;
 static int      Net_DriverUnitNo;
 static bool	Net_Attached=false;
+static unsigned Net_DriverFlags;
+static NETADDR  Net_MultiAddr;
+static const NETADDR *Net_MultiPtr;
 
 
 /* -------------------------------- */
@@ -345,7 +350,7 @@ int LLC_GetMTU ( void )  /* Returns LLC layer's maximum packet size */
   R.r[0] = 0;
   R.r[1] = Net_DriverUnitNo;
 
-  _kernel_swi ( Net_DriverSWIbase+DCI_GetNetworkMTU, &R, &R );
+  _kernel_swi ( Net_DriverSWIbase+DCI4GetNetworkMTU, &R, &R );
   return R.r[2]-4;
 }
 
@@ -380,7 +385,7 @@ static bool TxSend ( NETADDR *dest, BUFCHAIN pB, bool DeleteAfterUse )
   if ( DeleteAfterUse )
   {
     pB->m_list = NULL;
-    _swi(Net_DriverSWIbase+DCI_Transmit,
+    _swi(Net_DriverSWIbase+DCI4Transmit,
                 _INR(0,5),
                 0,                /* Flags */
                 Net_DriverUnitNo,
@@ -394,9 +399,9 @@ static bool TxSend ( NETADDR *dest, BUFCHAIN pB, bool DeleteAfterUse )
     struct mbuf *pBsave = pB->m_list;
     pB->m_list = NULL;     /* Save m_list value */
 
-    _swi(Net_DriverSWIbase+DCI_Transmit,
+    _swi(Net_DriverSWIbase+DCI4Transmit,
                 _INR(0,5),
-                Transmit_ProtocolFrees, /* Flags */
+                TX_PROTOSDATA, /* Flags */
                 Net_DriverUnitNo,
                 bytecount,      /* FrameType */
                 (int) pB,
@@ -412,8 +417,6 @@ static bool TxSend ( NETADDR *dest, BUFCHAIN pB, bool DeleteAfterUse )
 
 /* Receive handler --------- */
 
-extern void ReceiveFn ( struct dib *pDib, struct mbuf *pData );
-
 /* This module maintains a 'raw' receive queue, which is
    filled up with Rx data at interrupt time. This is then
    processed with LLC_RcvProcess() at a safe later time
@@ -421,7 +424,7 @@ extern void ReceiveFn ( struct dib *pDib, struct mbuf *pData );
    manually).
 */
 
-int ReceiveFn_handler ( _kernel_swi_regs *R, int pw )
+int ReceiveFn_handler ( _kernel_swi_regs *R, void *pw )
 {
   struct mbuf *pData = (struct mbuf *) R->r[1];
   struct mbuf *pDnext;
@@ -448,11 +451,11 @@ int ReceiveFn_handler ( _kernel_swi_regs *R, int pw )
 
 /* ---------------------- */
 
-static dci4_dib *FindDCIDriver ( char *name, int unit )
+static Dib *FindDCIDriver ( char *name, int unit )
 {
   _kernel_swi_regs R;
-  dci4_chaindib *pCD, *pCD2;
-  dci4_dib      *pD;
+  ChDib *pCD, *pCD2;
+  Dib      *pD;
 
   /* Get list of network drivers -------------- */
 
@@ -463,13 +466,13 @@ static dci4_dib *FindDCIDriver ( char *name, int unit )
 
   /* Search for correct one --------- */
 
-  pCD = (dci4_chaindib *)R.r[0];
+  pCD = (ChDib *)R.r[0];
   pD  = NULL;
 
   while ( pCD != NULL )
   {
     if ( unit == pCD->chd_dib->dib_unit &&
-         strcmp ( name, pCD->chd_dib->dib_name ) == 0 )
+         strcmp ( name, (char *) pCD->chd_dib->dib_name ) == 0 )
     {
       pD = pCD->chd_dib;
     }
@@ -486,11 +489,18 @@ static dci4_dib *FindDCIDriver ( char *name, int unit )
 
 /* DCI4 initialisation ----------- */
 
-err_t LLC_AttachDriver( char *name )
+#if DCIVERSION < 404
+# error "Multicast filtering requires DCI v4.04 or later (TCPIPLibs-5_01 or later)"
+#endif
+static void DetachDriver(void);
+
+
+err_t LLC_AttachDriver( char *name, const NETADDR *Multi_Addr )
 {
   _kernel_swi_regs R;
-  dci4_dib      *pD;
+  Dib      *pD;
   char dname[20];
+  int filter_flags = FILTER_NO_UNSAFE | FILTER_CLAIM;
 
   if ( name == NULL ||
        sscanf( name, "%[^0123456789]%d", dname, &Net_DriverUnitNo) != 2 )
@@ -518,7 +528,7 @@ err_t LLC_AttachDriver( char *name )
   /* Get driver interface version: must be major version 4 */
 
   R.r[0] = 0;
-  _kernel_swi ( Net_DriverSWIbase+DCI_DCIversion, &R, &R );
+  _kernel_swi ( Net_DriverSWIbase+DCI4Version, &R, &R );
 
   debug1("  Driver version %d\n", R.r[1]);
 
@@ -529,31 +539,69 @@ err_t LLC_AttachDriver( char *name )
 
   R.r[0] = 0;
   R.r[1] = Net_DriverUnitNo;
-  _kernel_swi ( Net_DriverSWIbase+DCI_Inquire, &R, &R );
+  _kernel_swi ( Net_DriverSWIbase+DCI4Inquire, &R, &R );
 
+  Net_DriverFlags = R.r[2];
   debug1("  Driver flags: %Xh\n", R.r[2] );
-  if ( (R.r[2] & (Feature_Multicast | Feature_HardwareAddress) )
-              != (Feature_Multicast | Feature_HardwareAddress) )
+  if ( (R.r[2] & (INQ_MULTICAST | INQ_HWADDRVALID) )
+              != (INQ_MULTICAST | INQ_HWADDRVALID) )
     return EDRIVERTYPE;
 
   /* Save address */
 
   memcpy ( LLC_MachineAddress.b, pD->dib_address, 6 );
 
+  /* Can the driver perform h/w multicast filtering? */
+
+  if (Net_DriverFlags & INQ_FILTERMCAST) {
+    filter_flags |= FILTER_SPECIFIC_MCAST;
+  }
+  else {
+    filter_flags |= FILTER_ALL_MCAST;
+  }
+
   /* Now request ISO packets */
 
-  R.r[0] = Filter_MustEnsureSafe; /* Flags */
+  R.r[0] = filter_flags; /* Flags */
   R.r[1] = Net_DriverUnitNo;
-  R.r[2] = FRMLVL_IEEE;      /* Need 802.3 frames */
+  R.r[2] = 0;
+  SET_FRAMELEVEL(R.r[2], FRMLVL_IEEE);      /* Need 802.3 frames */
   R.r[3] = ADDRLVL_MULTICAST;
   R.r[4] = ERRLVL_NO_ERRORS;
   R.r[5] = LM_pw;            /* Protocol handle (our PW) */
   R.r[6] = (int) ReceiveFn;        /* Receive handler function */
 
-  if ( _kernel_swi ( Net_DriverSWIbase + DCI_Filter, &R, &R ) != NULL )
+  if ( _kernel_swi ( Net_DriverSWIbase + DCI4Filter, &R, &R ) != NULL ) {
+    debug1("    Filter fail: %s\n", _kernel_last_oserror()->errmess);
     return EPACKETTYPE;
+  }
 
   Net_Attached = true;
+
+  if (Net_DriverFlags & INQ_FILTERMCAST) {
+    if (Multi_Addr) {
+      Net_MultiAddr = *Multi_Addr;
+      Net_MultiPtr = &Net_MultiAddr;
+      R.r[4] = R.r[3] = (int) Net_MultiPtr;
+      R.r[0] = MULTICAST_ADDR_REQ | MULTICAST_SPECIFIC_ADDR;
+    }
+    else {
+      Net_MultiPtr = NULL;
+      R.r[0] = MULTICAST_ADDR_REQ | MULTICAST_ALL_ADDR;
+      R.r[4] = R.r[3] = 0;
+    }
+    R.r[1] = Net_DriverUnitNo;
+    R.r[2] = 0;
+    SET_FRAMELEVEL(R.r[2], FRMLVL_IEEE);      /* Need 802.3 frames */
+    R.r[5] = LM_pw;
+    R.r[6] = (int) ReceiveFn;
+    if ( _kernel_swi ( Net_DriverSWIbase + DCI4MulticastRequest, &R, &R) != NULL ) {
+      DetachDriver();
+      Net_Attached = false;
+      return EPACKETTYPE;
+    }
+  }
+
   return OK;
 }
 
@@ -565,16 +613,39 @@ static void DetachDriver()
 
   if ( Net_Attached )
   {
+    int filter_flags = FILTER_NO_UNSAFE | FILTER_RELEASE;
+
+    /* Was the driver performing h/w multicast filtering? Release claims! */
+
+    if (Net_DriverFlags & INQ_FILTERMCAST) {
+      R.r[0] = MULTICAST_ADDR_REL | (Net_MultiPtr ? MULTICAST_SPECIFIC_ADDR : MULTICAST_ALL_ADDR);
+      R.r[1] = Net_DriverUnitNo;
+      R.r[2] = 0;
+      SET_FRAMELEVEL(R.r[2], FRMLVL_IEEE);      /* Need 802.3 frames */
+      R.r[3] = (int) Net_MultiPtr;
+      R.r[4] = (int) Net_MultiPtr;
+      R.r[5] = LM_pw;
+      R.r[6] = (int) ReceiveFn;
+      debug0("    Releasing driver multicast filter\n");
+      (void) _kernel_swi ( Net_DriverSWIbase + DCI4MulticastRequest, &R, &R);
+      filter_flags |= FILTER_SPECIFIC_MCAST;
+    }
+    else {
+      filter_flags |= FILTER_ALL_MCAST;
+    }
+
+    debug0("    Releasing driver claim\n");
     Net_Attached = false;
-    R.r[0] = Filter_ClaimRelease | Filter_MustEnsureSafe; /* Flags */
+    R.r[0] = filter_flags; /* Flags */
     R.r[1] = Net_DriverUnitNo;
-    R.r[2] = FRMLVL_IEEE;      /* Need 802.3 frames */
+    R.r[2] = 0;
+    SET_FRAMELEVEL(R.r[2], FRMLVL_IEEE);      /* Need 802.3 frames */
     R.r[3] = ADDRLVL_MULTICAST;
     R.r[4] = ERRLVL_NO_ERRORS;
     R.r[5] = LM_pw;            /* Protocol handle (our PW) */
     R.r[6] = (int) ReceiveFn;        /* Receive handler function */
 
-    _kernel_swi ( Net_DriverSWIbase + DCI_Filter, &R, &R );
+    _kernel_swi ( Net_DriverSWIbase + DCI4Filter, &R, &R );
   }
 }
 
@@ -1132,11 +1203,11 @@ static void LLC_RcvProcess( NETADDR *src, BUFCHAIN pB )
 static void ReceiveProcess (BUFCHAIN pB)
 {
   BUFCHAIN pB2;
-  struct rx_hdr *pRH;
+  RxHdr *pRH;
   NETADDR srcaddr;
   int     len;
 
-  pRH = mtod ( pB, struct rx_hdr *);
+  pRH = mtod ( pB, RxHdr *);
 
   /* Extract source address & length  */
   memcpy ( srcaddr.b, pRH->rx_src_addr, 6 );

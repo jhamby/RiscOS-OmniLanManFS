@@ -19,6 +19,15 @@
 EXP_HDR = <export$dir>
 
 #
+# Component specific options:
+#
+COMPONENT  = LanManFS
+ROM_MODULE = aof.${COMPONENT}
+RAM_MODULE = rm.${COMPONENT}
+DBG_MODULE = rm.${COMPONENT}D
+
+
+#
 # Generic options:
 #
 MKDIR   = cdir
@@ -33,13 +42,15 @@ WIPE    = -wipe
 CD	= dir
 
 
-AFLAGS = -depend !Depend ${THROWBACK} -Stamp -quit
-CFLAGS  = -depend !Depend ${THROWBACK} -c -pcc -ff -zps1 -zM -I${INCLUDES},. ${DFLAGS} -UTML -DCOMPAT_INET4
-CMHGFLAGS = -p -depend !Depend ${THROWBACK}
-
-
 CPFLAGS = ~cfr~v
 WFLAGS  = ~c~v
+
+# sbrodie 5/1/99: Define LANMANFS to enable use of NFS headers
+DFLAGS    = -UTML -DCOMPAT_INET4 -DLANMANFS -DLONGNAMES
+AFLAGS    = -depend !Depend ${THROWBACK} -Stamp -quit
+CFLAGS    = -depend !Depend ${THROWBACK} -c -Wpcs -ff -zps1 -zM ${INCLUDES},. ${DFLAGS}
+CMHGFLAGS = -depend !Depend ${THROWBACK} -p
+INCLUDES  = -ITCPIPLibs:,C:
 
 #
 # Libraries
@@ -54,106 +65,126 @@ INETLIB   = TCPIPLibs:o.inetlibzm
 SOCKLIB   = TCPIPLibs:o.socklibzm
 UNIXLIB   = TCPIPLibs:o.unixlibzm
 
-#
-# Include files
-#
-LEVEL=		^
-INCLUDES=	TCPIPLibs:,C:
 
-#DFLAGS   = -dDEBUG
-DFLAGS   =
 
-COMPONENT = LanManFS
-TARGET    = rm.LanManFS
-ROMTARGET = aof.LanManFS
-OBJS      = LanMan_MH.o LanMan.o Omni.o Logon.o CoreFn.o Printers.o \
-            Xlate.o Interface.o RMInfo.o buflib.o \
-            LLC.o NetBIOS.o SMB.o Errors.o Attr.o RPC.o NBIP.o Stats.o
+OBJS      = LanMan.o Omni.o Logon.o CoreFn.o Printers.o NameCache.o \
+            Xlate.o Interface.o RMInfo.o buflib.o Transact.o \
+            LLC.o NetBIOS.o SMB.o Errors.o Attr.o RPC.o NBIP.o Stats.o LanMan_MH.o
 
-OBJSI     = i.LanMan i.Omni i.Logon i.CoreFn i.Printers \
-            i.Xlate i.buflib \
+ROM_OBJS  = or.LanMan or.Omni or.Logon or.CoreFn or.Printers or.NameCache \
+            or.Xlate or.buflib  Interface.o RMInfo.o Errors.o or.Transact \
+            or.LLC or.NetBIOS or.SMB or.Attr or.RPC or.NBIP or.Stats LanMan_MH.o 
+
+#DBG_OBJS  = od.LanMan od.Omni od.Logon od.CoreFn od.Printers od.NameCache \
+#            od.Xlate od.buflib  Interface.o RMInfo.o Errors.o o.Transact \
+#            od.LLC od.NetBIOS od.SMB od.Attr od.RPC od.NBIP od.Stats LanMan_MH.o 
+
+DBG_OBJS  = od.LanMan od.Omni od.Logon od.CoreFn od.Printers od.NameCache \
+            od.Xlate od.buflib Interface.o RMInfo.o Errors.o od.Transact \
+            o.LLC o.NetBIOS od.SMB o.Attr od.RPC od.NBIP od.Stats LanMan_MH.o 
+
+OBJSI     = i.LanMan i.Omni i.Logon i.CoreFn i.Printers i.NameCache \
+            i.Xlate i.buflib i.Transact \
             i.LLC i.NetBIOS i.SMB i.Attr i.RPC i.NBIP i.Stats
 
 OBJSINST  = LanMan_MH.o inst.LanMan inst.Omni inst.Logon inst.CoreFn inst.Printers \
-            inst.Xlate inst.buflib Interface.o RMInfo.o Errors.o \
-            inst.LLC inst.NetBIOS inst.SMB inst.Attr inst.RPC inst.NBIP inst.Stats
+            inst.Xlate inst.buflib Interface.o RMInfo.o Errors.o inst.Transact\
+            inst.NameCache\
+            inst.LLC inst.NetBIOS inst.SMB inst.Attr inst.RPC inst.NBIP inst.Stats 
+
+LanMan_MH.h: LanMan_MH.o
+	${CMHG} ${CMHGFLAGS} cmhg.$* -d $@
 
 #
 # Rule patterns
 #
-.SUFFIXES:  .o .s .c .i .h .cmhg .inst
+.SUFFIXES:  .o .od .or .s .c .i .h .cmhg .inst
 .c.o:;      ${CC} ${CFLAGS} -o $@ $<
+.c.or:;      ${CC} ${CFLAGS} -DROM -o $@ $<
+.c.od:;      ${CC} ${CFLAGS} -DDEBUG -DTRACE -Dprintf=module_printf -o $@ $<
 .c.i:;		$(CC) $(CFLAGS) -c -C -E $< >> $@
 .i.inst:;	$(CC) $(CFLAGS) -C++ -o $@ $<
-.cmhg.o:;   ${CMHG} ${CMHGFLAGS} -o $@ $<
+.cmhg.o:;   ${CMHG} ${CMHGFLAGS} -o $@ $< -d $*.h
 .s.o:;      ${AS} ${AFLAGS} $< $@
 
 #
 # Build target
 #
-all: ${TARGET}
+all: ${RAM_MODULE}
 	@echo ${COMPONENT}: all complete
 
 #
 # RISC OS ROM build rules:
 #
-rom: ${ROMTARGET}
+rom: ${ROM_MODULE}
 	@echo ${COMPONENT}: rom module built
 
-preprocess: ${OBJSI} local_dirs
+preprocess: ${OBJSI} i.dirs
 	@echo ${COMPONENT}: preprocess build complete
 
-instrument: ${OBJSINST} inst.instlib local_dirs 
-	$(LD) -rmf -s link/sym -o rm.AcornPOP3u $(OBJSINST) inst.instlib $(STUBS)
-	ModSqz rm.AcornPOP3u rm.AcornPOP3
+instrument: ${OBJSINST} inst.instlib i.dirs o.dirs 
+	$(LD) -rmf -o $@ $(OBJSINST) inst.instlib $(STUBS)
+	ModSqz $@
 	@echo ${COMPONENT}: instrument build complete
 
-local_dirs:
+o.dirs:
 	${MKDIR} o
-	${MKDIR} aof
-	${MKDIR} rm
+	${MKDIR} od
+	${MKDIR} or
+	create o.dirs
+
+i.dirs:
 	${MKDIR} i
 	${MKDIR} inst
-
 
 export: 
 	@echo ${COMPONENT}: export complete
 
-install_rom: ${ROMTARGET}
-	${CP} ${ROMTARGET} ${INSTDIR}.${COMPONENT} ${CPFLAGS}
+install_rom: ${ROM_MODULE}
+	${CP} ${ROM_MODULE} ${INSTDIR}.${COMPONENT} ${CPFLAGS}
 	@echo ${COMPONENT}: rom module installed
 
 clean:
-	${WIPE} o.* ${WFLAGS}
-	${WIPE} i.* ${WFLAGS}
-	${WIPE} inst.* ${WFLAGS}
-	${RM} ${TARGET}
-	${RM} ${ROMTARGET}
-	${RM} map.${COMPONENT}
-	${RM} linked.${COMPONENT}
+	${WIPE} o ${WFLAGS}
+	${WIPE} od ${WFLAGS}
+	${WIPE} or ${WFLAGS}
+	${WIPE} i ${WFLAGS}
+	${WIPE} inst ${WFLAGS}
+	${WIPE} map ${WFLAGS}
+	${WIPE} linked ${WFLAGS}
+	${WIPE} aof ${WFLAGS}
+	${WIPE} rm ${WFLAGS}
+	${RM} h.LanMan_MH
+	${RM} NameCache
 	@echo ${COMPONENT}: cleaned
 
 #
 # Target 
 #
-${TARGET}: ${OBJS}
+${RAM_MODULE}: ${OBJS} o.dirs
+	${MKDIR} rm
 	${LD} -o $@ -rmf ${OBJS} ${UNIXLIB} ${INETLIB} ${SOCKLIB} ${CLIB}
-	$(MODSQZ) $(TARGET)
+	${MODSQZ} $@
+	Access $@ RW/R
+
+${DBG_MODULE}: ${DBG_OBJS} o.dirs
+	${MKDIR} rm
+	${LD} -o $@ -rmf ${DBG_OBJS} ${UNIXLIB} ${INETLIB} ${SOCKLIB} ${CLIB}
+	${MODSQZ} $@
 
 #
 # ROM Target 
 #
-${ROMTARGET}: ${OBJS} ${UNIXLIB} ${INETLIB} ${SOCKLIB}
-	${LD} -o $@ -aof ${OBJS} ${ROMCSTUBS} ${UNIXLIB} ${INETLIB} ${SOCKLIB}
+${ROM_MODULE}: ${ROM_OBJS} ${UNIXLIB} ${INETLIB} ${SOCKLIB} o.dirs
+	${MKDIR} aof
+	${LD} -o $@ -aof ${ROM_OBJS} ${ROMCSTUBS} ${UNIXLIB} ${INETLIB} ${SOCKLIB}
 	
 #
 # Final link for the ROM Image (using given base address)
 #
 rom_link:
 	${MKDIR} linked
-	${MKDIR} map
-	${LD} -o linked.${COMPONENT} -map -bin -base ${ADDRESS} ${ROMTARGET} ${ABSSYM} > map.${COMPONENT}
-	truncate map.${COMPONENT} linked.${COMPONENT}
+	${LD} -o linked.${COMPONENT} -rmf -base ${ADDRESS} ${ROM_MODULE} ${ABSSYM}
 	${CP} linked.${COMPONENT} ${LINKDIR}.${COMPONENT} ${CPFLAGS}
 	@echo ${COMPONENT}: rom_link complete
 

@@ -32,7 +32,8 @@ initialisation-code: LM_Initialise
 finalisation-code: LM_Finalise
 
 ; Service calls: FSRedeclare; ResourceFSStarting; DCIDriverStatus; OmniAction
-service-call-handler: LM_Service &40 &60 &9D &A0
+; InternetStatus
+service-call-handler: LM_Service &40 &60 &9D &A0 &B0
 
 swi-handler-code:      LM_Swi
 
@@ -42,7 +43,12 @@ swi-decoding-table:    LanMan,
    OmniOp, FreeOp, NameOp, Transact, LogonOp
 
 
-vector-handlers: ReceiveFn TickerFn LLC_CallbackFn NBIP_CallbackFn EventFn
+generic-veneers: callback_entry/callback_handler,	; for anti-idleout callback
+                 callevery_entry/callevery_handler
+
+vector-handlers: ReceiveFn TickerFn LLC_CallbackFn,
+	NBIP_CallbackFn/NBIP_CallbackFn_handler_ctrl,
+ 	EventFn
 
 
 command-keyword-table: LM_Command
@@ -52,52 +58,61 @@ command-keyword-table: LM_Command
                "Syntax:\t*LanMan\r",
                 invalid-syntax: "Syntax:\t*LanMan\r" ),
 
-        Connect(min-args:3, max-args:5,
-    help-text: "*Connect sets up a connection to a file server\r"
-      "Syntax:\t*Connect <name> <server> <dir-name> [<user-name> <password>]\r",
-    invalid-syntax: "Syntax:\t*Connect <name> <server> <dir-name> <user>"
+        LMConnect(min-args:3, max-args:5,
+    help-text: "*LMConnect sets up a connection to a file server\r"
+      "Syntax:\t*LMConnect <name> <server> <dir-name> [<user-name> <password>]\r",
+    fs-command:,
+    invalid-syntax: "Syntax:\t*LMConnect <name> <server> <dir-name> <user>"
                                 " <password>\r", ),
 
-
-        Disconnect(min-args:1, max-args:1,
-    help-text: "*Disconnect disconnects from a file server\r"
-               "Syntax:\t*Disconnect <name>\r",
-    invalid-syntax: "Syntax:\t*Disconnect <name>\r", ),
+        LMDisconnect(min-args:1, max-args:1,
+    help-text: "*LMDisconnect disconnects from a file server\r"
+               "Syntax:\t*LMDisconnect <name>\r",
+    fs-command:,
+    invalid-syntax: "Syntax:\t*LMDisconnect <name>\r", ),
 
         LMLogon(min-args:2, max-args:3,
     help-text: "*LMLogon sets default information about the network\r"
                "Syntax:\t*LMLogon <workgroup> <username> <password>\r",
+    fs-command:,
     invalid-syntax: "Syntax:\t*LMLogon <workgroup> <username> <password>\r", ),
 
         LMInfo(min-args:0, max-args:0,
     help-text: "*LMInfo displays debugging information\r"
                "Syntax:\t*LMInfo\r",
+    fs-command:,
     invalid-syntax: "Syntax:\t*LMInfo\r", ),
 
         LMNameMode(min-args:1, max-args:1,
-    help-text: "*LMNameMode sets the way LanManFS capitalises names\r"
+    help-text: "*LMNameMode sets the way LanManFS capitalises names on DOS shares\r"
+               "It does not affect long filename shares\r"
                "Syntax:\t*LMNameMode  [0|1|2]\r",
+    fs-command:,
     invalid-syntax: "Syntax:\t*LMNameMode  [0|1|2]\r", ),
 
         LMLogoff(min-args:0, max-args:0,
     help-text: "*LMLogoff clears the workgroup and default user settings "
                "and disables network browsing\rSyntax:\t*LMLogoff\r",
+    fs-command:,
     invalid-syntax: "Syntax:\t*LMLogoff\r" ),
 
         LMServer(min-args:1, max-args:17,
     help-text: "*LMserver adds a server name and list of shared drives\r"
                "Syntax:\t*LMServer server [sharename] [sharename] ...\r",
+    fs-command:,
     invalid-syntax: "Syntax:\t*LMServer server [sharename] [sharename] ...\r", ),
 
         LMPrinters(min-args:1, max-args:17,
     help-text: "*LMPrinters adds a server name and list of printers\r"
                "Syntax:\t*LMPrinters server [printername] [printername] ...\r",
+    fs-command:,
     invalid-syntax: "Syntax:\t*LMPrinters server [printername] [printername] ...\r",
                  ),
 
         LMStats(min-args:0, max-args:0,
     help-text: "*LMStats shows network statistics\r"
                "Syntax:\t*LMStats\r",
+    fs-command:,
     invalid-syntax: "Syntax:\t*LMStats",
                  ),
 
@@ -123,5 +138,12 @@ command-keyword-table: LM_Command
     invalid-syntax: "Syntax:\t*Configure LMNameServer [IP address]\r",
     configure:,
     status:,
-                 )
+                 ),
+
+
+        Free(min-args:0, max-args:1,
+    help-text: "*Free displays the total free space on a LanManFS share",
+    invalid-syntax: "Syntax:\t*Free [<disc spec.>]\r",
+    fs-command:,
+                  )
 

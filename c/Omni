@@ -58,7 +58,7 @@
 #include "logon.h"
 
 #include "omni.h"
-
+#include "LanMan_MH.h"
 
 #define INFO_STR_LEN 32
 /* Length of info string kept about servers & mounts */
@@ -394,7 +394,20 @@ static err_t BootMount ( NAMELIST *pNLmount )
 
   /* Attempts to run a !ArmBoot file or applicationn, if it exists */
 
+  if (1) {
+    int key;
+    (void) _swix(OS_Byte, _INR(0,2)|_OUT(1), 129, 255, 255, &key);
+    if (key == 255) {
+       /* SHIFT was depressed */
+       return OK;
+    }
+  }
+
   sprintf ( work_buf, "%c\\!ARMBOOT", pNLmount->u.mount.smb_lettr );
+
+#ifdef TRACE
+  debug1("BootMount looking for %s\n", work_buf);
+#endif
 
   /* If no such file or directory, we can stop now */
   if ( SMB_GetAttribs ( work_buf, &dummy ) != OK )
@@ -439,6 +452,10 @@ err_t Omni_MountServer ( char *servname, char *userID, char *passwd,
 
   *mount_id_out = 0;
 
+#ifdef TRACE
+  debug3("Omni_MountServer: %p %p %p\n", mountname, servname, mountpath);
+#endif
+
   if ( mountname == NULL || servname == NULL || mountpath == NULL )
     return EBADPARAM;
 
@@ -465,6 +482,9 @@ err_t Omni_MountServer ( char *servname, char *userID, char *passwd,
 
   if ( res != OK ) /* Didn't work. Forget it */
   {
+#ifdef TRACE
+    debug0("SMB_CreateShare failed\n");
+#endif
     DeleteFromList ( &MountsList, pNLmount );
     return res;
   }
@@ -528,18 +548,25 @@ static uint size_clip ( uint val, uint limit, uint blksize )
 
 /* ------------------ */
 
+static err_t Omni_DetermineFreeSpace ( int mount_id,
+       struct disk_size_response *DSR)
+{
+  NAMELIST *pNL = Validate(mount_id, M_VALID_TAG);
+
+  if ( pNL == NULL )
+    return EBADPARAM;
+
+  return SMB_GetFreeSpace ( pNL->u.mount.smb_lettr, DSR );
+}
+
 static err_t Omni_FreeSpace ( int mount_id,
        int *freespace_out, int *usedspace_out, int *totspace_out )
 {
   struct disk_size_response DSR;
   uint blklimit;
   err_t res;
-  NAMELIST *pNL = Validate(mount_id, M_VALID_TAG);
 
-  if ( pNL == NULL )
-    return EBADPARAM;
-
-  res = SMB_GetFreeSpace ( pNL->u.mount.smb_lettr, &DSR );
+  res = Omni_DetermineFreeSpace ( mount_id, &DSR );
   if ( res != OK )
     return res;
 
@@ -553,6 +580,84 @@ static err_t Omni_FreeSpace ( int mount_id,
   *usedspace_out  = size_clip( DSR.totalblks-DSR.freeblks,
                                              blklimit, DSR.blksize );
 
+  return OK;
+}
+
+typedef struct fspc_64  {
+        unsigned lo, hi;
+} fspc_64;
+
+/* Multiply macro taken from NSPRLib */
+#define LL_MUL(r, a, b) { \
+    fspc_64 _a, _b; \
+    _a = a; _b = b; \
+    LL_MUL32(r, _a.lo, _b.lo); \
+    (r).hi += _a.hi * _b.lo + _a.lo * _b.hi; \
+}
+
+#define PR_BIT(n)       ((unsigned)1 << (n))
+#define PR_BITMASK(n)   (PR_BIT(n) - 1)
+
+#define _lo16(a)        ((a) & PR_BITMASK(16))
+#define _hi16(a)        ((a) >> 16)
+
+#define LL_MUL32(r, a, b) { \
+     unsigned _a1, _a0, _b1, _b0, _y0, _y1, _y2, _y3; \
+     _a1 = _hi16(a), _a0 = _lo16(a); \
+     _b1 = _hi16(b), _b0 = _lo16(b); \
+     _y0 = _a0 * _b0; \
+     _y1 = _a0 * _b1; \
+     _y2 = _a1 * _b0; \
+     _y3 = _a1 * _b1; \
+     _y1 += _hi16(_y0);                         /* can't carry */ \
+     _y1 += _y2;                                /* might carry */ \
+     if (_y1 < _y2)    \
+        _y3 += (unsigned)(PR_BIT(16));  /* propagate */ \
+     (r).lo = (_lo16(_y1) << 16) + _lo16(_y0); \
+     (r).hi = _y3 + _hi16(_y1); \
+}
+
+#ifdef __CC_NORCROFT
+/* No way of checking version number though.
+ * Version 5.11 of the compiler should be OK because I fixed this bug
+ * in that version [sbrodie]
+ */
+static void _Omni_ForceCSESync(void) {}
+#else
+#  define _Omni_ForceCSESync() ((void)0)
+#endif
+
+#ifdef __CC_NORCROFT
+/* May as well optimise this a bit */
+__value_in_regs
+#endif
+static fspc_64 Omni_Multiply64(uint plo1, uint plo2)
+{
+        fspc_64 p1, p2, res;
+        p1.hi = p2.hi = 0;
+        p1.lo = plo1;
+        p2.lo = plo2;
+        _Omni_ForceCSESync();
+        LL_MUL(res, p1, p2);
+        _Omni_ForceCSESync();
+        return res;
+}
+
+static err_t Omni_FreeSpace64 ( int mount_id, int *success,
+       fspc_64 *freespace_out, fspc_64 *usedspace_out, fspc_64 *totspace_out )
+{
+  struct disk_size_response DSR;
+  err_t res;
+
+  res = Omni_DetermineFreeSpace ( mount_id, &DSR );
+  if ( res != OK )
+    return res;
+
+  *freespace_out = Omni_Multiply64(DSR.freeblks, DSR.blksize);
+  *totspace_out = Omni_Multiply64(DSR.totalblks, DSR.blksize);
+  *usedspace_out = Omni_Multiply64(DSR.totalblks - DSR.freeblks, DSR.blksize);
+
+  *success = 0;
   return OK;
 }
 
@@ -1023,7 +1128,7 @@ err_t Omni_GetDefaultType ( char *name, int * pType_out )
   if ( !Omni_Registered )
     return ENOTPRESENT;
 
-  R.r[0] = SWI_LanMan_OmniOp; /* Client ID */
+  R.r[0] = LanMan_OmniOp; /* Client ID */
   R.r[1] = (int) name;
   R.r[2] = (int) tmpbuf;  /* We ignore the name it returns! */
   R.r[3] = (int) tmpbuf2; /* Flags string */
@@ -1249,6 +1354,23 @@ _kernel_oserror *Omni_FreeOp_SWI (_kernel_swi_regs *R )
         return NULL;
       }
 
+    case 4:   /* Get free space on device (64 bit) */
+      /* R->r[3] on entry points to a device name.
+         Methinks this is the same as returned from
+         case 1 */
+      /* This code can be entered directly by Cmd_FREE */
+      {
+        int m_id = Omni_GetMountID ( ExtractName( (char *)(R->r[3]) ));
+        if ( m_id == 0 )
+          return Xlt_Error(EBADDRV);
+
+        return Xlt_Error ( Omni_FreeSpace64 ( m_id,
+           (int *)&(R->r[0]),       /* zero it on success */
+           (fspc_64 *)(R->r[2]+8)  /* freespace_out */,
+           (fspc_64 *)(R->r[2]+16) /* usedspace_out */,
+           (fspc_64 *)(R->r[2])    /* totspace_out */ ) );
+      }
+
     default:
       break;
   }
@@ -1268,7 +1390,7 @@ void Omni_RecheckInfo( int flags )
 
   if ( Omni_Registered )
   {
-    R.r[0] = SWI_LanMan_OmniOp; /* Client ID */
+    R.r[0] = LanMan_OmniOp; /* Client ID */
     R.r[1] = flags;  /* Enumerate servers/mounts */;
     _kernel_swi ( SWI_Omni_EnumerateMounts, &R, &R );
   }
@@ -1280,7 +1402,7 @@ static void Omni_Register(void)
 {
   _kernel_swi_regs R;
 
-  R.r[0] = SWI_LanMan_OmniOp; /* Client ID */
+  R.r[0] = LanMan_OmniOp; /* Client ID */
   R.r[1] = RC_NEEDS_USERID | RC_NEEDS_PASSWD | RC_NEEDS_MOUNTPATH |
              RC_DOES_FILES | RC_EXTN_CHAR('.') |
              RC_DOES_PRINT | RC_NEEDS_PRINTPWD;
@@ -1361,7 +1483,7 @@ void Omni_Shutdown ( void )
 
   if ( Omni_Registered )
   {
-    R.r[0] = SWI_LanMan_OmniOp;
+    R.r[0] = LanMan_OmniOp;
     _kernel_swi ( SWI_Omni_DeregisterClient, &R, &R );
     Omni_Registered = false;
   }

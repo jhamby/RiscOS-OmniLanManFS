@@ -28,6 +28,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <stddef.h>
 #include <string.h>
 #include <ctype.h>
 #include "kernel.h"
@@ -471,6 +472,7 @@ err_t RPC_Transact ( char *servername, char *pipename, void *pvParmBlk )
 {
   char drv;
   err_t res;
+  struct TransactParms t;
 
   /* Connect to IPC share using default user ID/password */
 
@@ -480,7 +482,12 @@ err_t RPC_Transact ( char *servername, char *pipename, void *pvParmBlk )
   if ( res != OK )
     return res;
 
-  res = SMB_Transact ( drv, pipename, (struct TransactParms *) pvParmBlk );
+  memcpy(&t, pvParmBlk, sizeof_TransactParms_external);
+#ifdef LONGNAMES
+  t.setup_in_len = 0;
+  t.setup_out_maxlen = 0;
+#endif
+  res = SMB_Transact ( drv, pipename, &t );
   SMB_DeleteShare ( drv );
   return res;
 }
