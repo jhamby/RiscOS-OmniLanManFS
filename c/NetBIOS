@@ -1283,7 +1283,10 @@ EXPORT err_t _NB_Startup(void)
 
   res = LLC_AttachDriver(LM_Vars.drivername, &Multi_Addr);
   if ( res != OK )
+  {
+    LLC_Shutdown();
     return res;
+  }
 
   /* Now set our machine name */
 
@@ -1299,7 +1302,13 @@ EXPORT err_t _NB_Startup(void)
   if ( LM_Vars.verbose )
     printf("  Setting machine name to '%s'\n", LM_Vars.machinename );
 
-  return _NB_AddLocalName( ntMACHINE, LM_Vars.machinename, &NB_MachineName );
+  res = _NB_AddLocalName( ntMACHINE, LM_Vars.machinename, &NB_MachineName );
+  if (res != OK)
+  {
+    LLC_Shutdown();
+  }
+
+  return res;
 }
 
 /* ----------------------- */
