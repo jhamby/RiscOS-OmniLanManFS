@@ -180,7 +180,7 @@ static void lanman_announce_lanmanfs(enum dps_reason r2, void *pw)
 {
 #ifndef NO_NETBEUI
   /* Send the service call announcing the presence/absence of a protocol module */
-  if (NB_InitedTransport == NB_NetBEUI_Startup)
+  if (NB_InitedTransport == NB_NetBEUI_Setup)
     (void) _swix(OS_ServiceCall, _INR(0,4), pw,
       Service_DCIProtocolStatus, r2, DCIVERSION, Module_Title);
 #endif
@@ -1115,7 +1115,7 @@ if (cmd_tail != NULL)
 
 #ifndef NO_NETBEUI
   /* Cheap way to set a callback ;-) Send service call announcing ourselves */
-  if (LM_InitedTransport == NB_NetBEUI_Startup) {
+  if (NB_InitedTransport == NB_NetBEUI_Setup) {
     callevery_handler(&R, pw);
     callbackflag = 2;
   }
