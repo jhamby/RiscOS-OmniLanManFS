@@ -84,6 +84,7 @@ Err_XltTable DCD Err0
              DCD Err59
              DCD Err60
              DCD Err61
+             DCD Err62
 
 
        ALIGN
@@ -336,6 +337,8 @@ Err60  DCD Err_Base+60
        ALIGN
 Err61  DCD Err_Base+61
        DCB "User account has been disabled", 0
+Err62  DCD Err_Base+62
+       DCB "LanManFS in use", 0
 
 
      END

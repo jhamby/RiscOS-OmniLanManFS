@@ -90,7 +90,6 @@ struct TransactParms
 
 /* Directory functions */
 
-extern err_t SMB_ChkPath ( char *path );
 extern err_t SMB_MkDir ( char *path );
 extern err_t SMB_RmDir ( char *path );
 extern err_t SMB_Delete ( char *path );

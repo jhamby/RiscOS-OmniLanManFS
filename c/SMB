@@ -76,6 +76,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <time.h>
 #include "kernel.h"
 
 /* Our includes */
@@ -233,7 +234,6 @@ typedef struct
 #define TRANSACT2_QUERYPATHINFORMATION 0x05
 #endif
 
-
 #define SUCCESS   0
 #define ERRDOS 0x01
 #define ERRSRV 0x02
@@ -278,6 +278,7 @@ typedef struct
 struct ActiveServer
 {
   int      flags;
+  time_t   last_xact;
 
   hSESSION hSession;    /* Only valid if status is IN_USE */
   char     password[NAME_LIMIT];
@@ -606,11 +607,6 @@ static void DumpStruct(void *ptr, const DumpVarStr *dvs)
     SMB_RxByteCount.
 */
 
-#ifdef LONGNAMES
-//#define RETRYONERROR
-//#define PINGFIRST
-#endif
-
 /* sbrodie (15 Jan 1999)
  *
  * This function has been split into two parts so that SMB_Transact2 can share the
@@ -623,8 +619,14 @@ static err_t Do_SMBResponse(hSHARE hS, int cmd, BUFCHAIN *ppB_out )
   err_t res;
   BUFCHAIN pB_rx;
 
+  if (cmd == SMBchkpth) {
+    /* This was just the keep-alive message */
+    debug0("Not waiting for response to SMBchkpth request\n");
+    return OK;
+  }
+
   /* Get reply */
-  res = NB_GetData ( hS->hServer->hSession, &pB_rx, cmd == SMBchkpth ? 400 : REPLY_TIMEOUT );
+  res = NB_GetData ( hS->hServer->hSession, &pB_rx, REPLY_TIMEOUT );
   if ( res != OK )
     return res;
 
@@ -641,18 +643,19 @@ static err_t Do_SMBResponse(hSHARE hS, int cmd, BUFCHAIN *ppB_out )
   pB_rx = GetData ( pB_rx, &SMB_RxHdr, SMBHDR_SIZE );
   wct_rx = SMB_RxHdr.wct;
 
+  if (SMB_RxHdr.command == SMBchkpth) {
+    /* Discard the 'ping' response */
+    debug0("This response was actually to the previous chkpth call\n");
+    FreeChain(pB_rx);
+    return Do_SMBResponse(hS, cmd, ppB_out);
+  }
+
 /* sbrodie: moved this from just above "OK - all was well" comment */
   /* Process errors back from server */
   if ( SMB_RxHdr.errclass != 0 )
   {
     debug1("Do_SMB: errclass was %d\n", SMB_RxHdr.errclass);
     FreeChain(pB_rx);
-#ifdef RETRYONERROR
-    if (SMB_RxHdr.errclass == ERRSRV && SMB_RxHdr.errlo == 1 && SMB_RxHdr.errhi == 0 && retry) {
-      --retry;
-      goto do_smb_retry;
-    }
-#endif
     return Err_Translate ( SMB_RxHdr.errclass,
         SMB_RxHdr.errlo + (SMB_RxHdr.errhi << 8) );
   }
@@ -690,18 +693,10 @@ static err_t Do_SMBResponse(hSHARE hS, int cmd, BUFCHAIN *ppB_out )
 static err_t Do_SMB_threadsafe ( hSHARE hS, int cmd, int wct_in, BUFCHAIN pB_in,
                       BUFCHAIN *ppB_out )
 {
-#ifdef RETRYONERROR
-  static const int xmit_size = SMBWORKBUF_SIZE + SMBHDR_SIZE + MAX_WCT * 2;
-  static BYTE SMB_XmitMemory[SMBWORKBUF_SIZE + SMBHDR_SIZE + MAX_WCT * 2];
-  int len, retry;
-#endif
-#ifdef PINGFIRST
-  BUFCHAIN ping_in;
-  BUFCHAIN pB_rx;
-  static SMBHDR ping_hdr;
-#endif
   err_t res;
   hSESSION hSess;
+
+  (void) time(&hS->hServer->last_xact);
 
   if ( ppB_out != NULL ) /* If early exit, leave NULL in result */
     *ppB_out = NULL;
@@ -736,37 +731,6 @@ static err_t Do_SMB_threadsafe ( hSHARE hS, int cmd, int wct_in, BUFCHAIN pB_in,
   if ( pB_in == NULL )
     return EOUTOFMEM;
 
-#ifdef RETRYONERROR
-  len = ChainLen(pB_in);
-  GetData ( pB_in, SMB_XmitMemory, xmit_size );
-  retry = 1; /* number of retries to attempt */
-do_smb_retry:
-  pB_in = AddChain ( NULL, SMB_XmitMemory, len );
-  if ( pB_in == NULL )
-  return EOUTOFMEM;
-#endif
-
-#ifdef PINGFIRST
-  NB_ClearRxQueue ( hSess );
-  ping_hdr = SMB_TxHdr;
-  ping_hdr.command = SMBecho;
-  ping_hdr.wct = 1;
-  ping_hdr.tid = 0;
-  ping_hdr.mid = 2;
-  ping_in = AddChain ( NULL, "\x01\x00\x02\x00\xA8\x00", 6 );
-  if (ping_in) ping_in = AddChain( ping_in , &ping_hdr, SMBHDR_SIZE );
-  if (ping_in) {
-    res = NB_SendData ( hSess, ping_in );
-    if ( res != OK )
-      return res;
-    res = NB_GetData ( hSess, &pB_rx, REPLY_TIMEOUT );
-    if (res != OK)
-      return res;
-    GetData ( pB_rx, NULL, SMBHDR_SIZE + 6 );
-    FreeChain ( pB_rx );
-  }
-#endif
-
   /* Send data */
 
   res = NB_ClearRxQueue ( hSess );
@@ -787,7 +751,7 @@ static err_t Do_SMB ( hSHARE hS, int cmd, int wct_in, BUFCHAIN pB_in,
   static volatile int threaded = 0;
 
   if (threaded) {
-    return EBOOTREENTRY;
+    return ELANMANFSINUSE;
   }
   else {
      err_t res;
@@ -1763,7 +1727,7 @@ err_t SMB_DeleteShare ( char drvlettr )
 
 /* Public file/directory routines ================================ */
 
-err_t SMB_ChkPath ( char *path )
+static err_t SMB_ChkPath ( char *path )
 {
   return SMB_SingleOp( SMBchkpth, path );
 }
@@ -3205,10 +3169,19 @@ void SMB_AntiIdle ( void )
     return;
   }
   else {
-    char echodat[4];
-    sprintf(echodat, "%c:\\", 'A' + letter);
-    debug1("Anti idle-out measure: %s\n", echodat);
-    (void) SMB_ChkPath(echodat);
+    time_t t;
+    (void) time(&t);
+    if (t > (hS->hServer->last_xact + 60 * 10)) {
+      char echodat[sizeof("A:\\")];
+      (void) sprintf(echodat, "%c:\\", 'A' + letter);
+      debug1("Anti idle-out measure: %s\n", echodat);
+#ifdef TRACE
+      if (ELANMANFSINUSE == SMB_ChkPath(echodat)) {
+        debug0("Re-entrancy due to idle-out check prevented\n");
+      }
+#else
+      (void) SMB_ChkPath(echodat);
+#endif
+    }
   }
 }
-
