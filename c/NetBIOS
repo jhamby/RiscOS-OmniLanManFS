@@ -24,6 +24,7 @@
 
 /* Standard includes */
 
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -32,12 +33,15 @@
 
 /* Our includes */
 
+#ifndef NO_NETBEUI
+
 #include "stdtypes.h"
 #include "buflib.h"
 #include "stats.h"
 #include "llc.h"
 #include "netbios.h"
 #include "lmvars.h"
+
 
 #define EXPORT static
 
@@ -1332,6 +1336,14 @@ EXPORT void _NB_Shutdown(void)
   LLC_Shutdown(); /* Detach driver & turn off timers, etc */
 }
 
+/* NB_InternetGone() --------------------------- */
+
+static void _NB_InternetGone(void)
+{
+  /* We don't care - we're the protocol module? */
+}
+
+
 /* Setup routine ------------------------------- */
 
 static struct NETBIOS_TRANSPORT NetBEUI_Transport;
@@ -1358,7 +1370,6 @@ void NB_NetBEUI_Setup ( void )
   p->pfnCloseSession = _NB_CloseSession;
   p->pfnFindNames = _NB_FindNames;
   p->pfnDescribeLink = _NB_DescribeLink;
+  p->pfnInternetGone = _NB_InternetGone;
 }
-
-
-
+#endif

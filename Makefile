@@ -37,19 +37,19 @@ CMHG    = cmhg
 CP      = copy
 LD      = link
 RM      = remove
-MODSQZ  = modsqz
+MODSQZ  = |modsqz
 WIPE    = -wipe
-CD	= dir
+CD      = dir
 RESGEN  = resgen
 
 
 CPFLAGS = ~cfr~v
 WFLAGS  = ~c~v
 
-DFLAGS    = -UTML -DCOMPAT_INET4 -DLONGNAMES
+DFLAGS    = -DCOMPAT_INET4 -DLONGNAMES ${OPTIONS}
 AFLAGS    = -depend !Depend ${THROWBACK} -Stamp -quit
 CFLAGS    = -depend !Depend ${THROWBACK} -c -Wpcs -ff -zps1 -zM ${INCLUDES},. ${DFLAGS}
-CMHGFLAGS = -depend !Depend ${THROWBACK} -p
+CMHGFLAGS = -depend !Depend ${THROWBACK} -p ${OPTIONS}
 INCLUDES  = -ITCPIPLibs:,C:
 
 #

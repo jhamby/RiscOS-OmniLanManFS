@@ -400,12 +400,18 @@ static void MountNameCpy ( char *d, char *s )
 static int ReentryCount = 0;
 
 #ifdef CHECK_ARMBOOT_EXISTS
-static err_t BootMount_check_file ( char drive )
+static err_t BootMount_check_file ( NAMELIST *pNLmount, const char *leaf )
 {
-  DOS_ATTRIBS dummy;
+  int type;
+  static char filename[80];
+  err_t e;
 
-  sprintf ( work_buf, "%c\\!ARMBOOT", drive );
-  return SMB_GetAttribs ( work_buf, &dummy );
+  sprintf ( filename, FilingSystemName "::%s.$.%s", pNLmount->name, leaf );
+  e = Xlt_SetOSError(_swix(OS_File, _INR(0,1)|_OUT(0), 23, filename, &type));
+  if (e == OK) {
+    if (type == 0) e = ECANTFINDNAME;
+  }
+  return e;
 }
 #endif
 
@@ -416,13 +422,9 @@ static err_t BootMount ( NAMELIST *pNLmount )
 
   /* Attempts to run a !ArmBoot file or applicationn, if it exists */
 
-  if (1) {
-    int key;
-    (void) _swix(OS_Byte, _INR(0,2)|_OUT(1), 129, 255, 255, &key);
-    if (key == 255) {
-       /* SHIFT was depressed */
-       return OK;
-    }
+  if ((_kernel_osbyte(129, 255, 255) & 0xFF00) == 0xFF00) {
+     /* SHIFT was depressed, or an error occurred */
+     return OK;
   }
 
 
@@ -432,8 +434,7 @@ static err_t BootMount ( NAMELIST *pNLmount )
 
   /* If no such file or directory, we can stop now */
 #ifdef CHECK_ARMBOOT_EXISTS
-  /* Only works if !ARMBOOT is a directory! */
-  if (BootMount_check_file(pNLmount->u.mount.smb_lettr) != OK)
+  if (BootMount_check_file(pNLmount, "!ARMBOOT") != OK)
     return OK;
 #endif
 

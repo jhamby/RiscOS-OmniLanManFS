@@ -2125,6 +2125,25 @@ EXPORT err_t _NB_Startup(void)
   return _NB_AddLocalName ( ntMACHINE, LM_Vars.machinename, &NB_MachineName);
 }
 
+/* NB_InternetGone() ---------------------------
+
+  The Internet module has disappeared.  Mark all sessions as disconnected and
+  pray that a new Internet module comes back before anything tries to do
+  anything with a session.
+
+ */
+
+static void _NB_InternetGone(void)
+{
+  int i;
+
+  for (i=0; i < MAX_SESSIONS; ++i) {
+    if (NB_Sessions[i].status == SESS_CONNECTED) {
+      NB_Sessions[i].sid = -1;
+      NB_Sessions[i].LinkOK = false;
+    }
+  }
+}
 
 /* Setup routine ------------------------------- */
 
@@ -2152,6 +2171,7 @@ void NB_NBIP_Setup ( void )
   p->pfnCloseSession = _NB_CloseSession;
   p->pfnFindNames = _NB_FindNames;
   p->pfnDescribeLink = _NB_DescribeLink;
+  p->pfnInternetGone = _NB_InternetGone;
 }
 
 

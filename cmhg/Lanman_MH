@@ -17,6 +17,7 @@
 ; <module-is-runnable:> - NO
 
 #include "VersionNum"
+#include "Global/Services.h"
 
 ; Title string
 title-string: LanManFS
@@ -33,7 +34,9 @@ finalisation-code: LM_Finalise
 
 ; Service calls: FSRedeclare; ResourceFSStarting; DCIDriverStatus; OmniAction
 ; InternetStatus
-service-call-handler: LM_Service &40 &60 &9D &A0 &B0
+service-call-handler: LM_Service Service_OmniAction Service_ResourceFSStarting,
+  Service_FSRedeclare,
+  Service_DCIDriverStatus Service_InternetStatus Service_DCIProtocolStatus
 
 swi-handler-code:      LM_Swi
 
@@ -46,9 +49,11 @@ swi-decoding-table:    LanMan,
 generic-veneers: callback_entry/callback_handler,	; for anti-idleout callback
                  callevery_entry/callevery_handler
 
-vector-handlers: ReceiveFn TickerFn LLC_CallbackFn,
-	NBIP_CallbackFn/NBIP_CallbackFn_handler_ctrl,
- 	EventFn
+vector-handlers: NBIP_CallbackFn/NBIP_CallbackFn_handler_ctrl,
+#ifndef NO_NETBEUI
+                 ReceiveFn TickerFn LLC_CallbackFn,
+#endif
+                 EventFn
 
 
 command-keyword-table: LM_Command

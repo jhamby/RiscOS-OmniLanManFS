@@ -96,6 +96,7 @@ struct NETBIOS_TRANSPORT
                           int results_max,
                           int timeout );
   char * (*pfnDescribeLink) ( hSESSION hS );
+  void   (*pfnInternetGone) ( void );
 };
 
 /* Definitions for supplied transports ------------------------- */
@@ -133,11 +134,4 @@ extern void NB_NBIP_Setup(void);
 #define NB_FindNames(a,b,c,d,e)	(NB_ActiveTransport->pfnFindNames(a,b,c,d,e))
 #define NB_DescribeLink(a)	(NB_ActiveTransport->pfnDescribeLink(a))
 
-
-
-
-
-
-
-
-
+#define NB_InternetGone(a)	(NB_ActiveTransport->pfnInternetGone(a))

@@ -56,6 +56,7 @@
 
 #include "LanMan_MH.h"
 
+static volatile int callbackflag = 0;
 
 /* ---------------------------------- */
 
@@ -168,6 +169,24 @@ static void GetFSName ( char *buf_out )
   *buf_out = 0;
 }
 
+/* --------------------- */
+
+enum dps_reason {
+  protocolstatus_STARTING,
+  protocolstatus_TERMINATING
+};
+
+static void lanman_announce_lanmanfs(enum dps_reason r2, void *pw)
+{
+#ifndef NO_NETBEUI
+  /* Send the service call announcing the presence/absence of a protocol module */
+  if (NB_InitedTransport == NB_NetBEUI_Startup)
+    (void) _swix(OS_ServiceCall, _INR(0,4), pw,
+      Service_DCIProtocolStatus, r2, DCIVERSION, Module_Title);
+#endif
+}
+
+
 /* Finalisation code ------------------------------------ */
 
 static void LM_Undeclare ( void )
@@ -206,6 +225,8 @@ _kernel_oserror * LM_Finalise (int fatal, int podule, void *pw)
   (void) fatal;
   (void) podule;
   (void) pw;
+
+  lanman_announce_lanmanfs(protocolstatus_TERMINATING, pw);
 
   LM_GracefulClosedown();
   LM_Undeclare();
@@ -483,8 +504,12 @@ static void SetDefaultVars ( void )
   LM_Vars.namemode  = NM_FIRSTCAPS;
 
   /* Set transport type from CMOS, unless overridden on command line */
+#ifdef NO_NETBEUI
+  LanMan_InitTransport(NB_NBIP_Setup);
+#else
   LanMan_InitTransport(RdCMOS ( CMOS_NB_TYPE ) & NBTYPE_IP_BIT  ?
-  	NB_NBIP_Setup : NB_NetBEUI_Setup);
+    NB_NBIP_Setup : NB_NetBEUI_Setup);
+#endif
 }
 
 /* --------------------- */
@@ -634,27 +659,38 @@ static _kernel_oserror *Cmd_LMTRANSPORT ( const char *args )
 {
   /* This is a *Configure/Status command handler */
   char *argv[1];
-  char *tp0 = "NetBEUI";
   char *tp1 = "IP";
 
-  if ( (int) args == 0 ) /* Show 'Configure' options */
+#ifdef NO_NETBEUI
+  if (args == arg_CONFIGURE_SYNTAX || args == arg_STATUS)
+  {
+    printf("LMTransport  IP\n");
+    return NULL;
+  }
+#else
+  char *tp0 = "NetBEUI";
+  if ( args == arg_CONFIGURE_SYNTAX ) /* Show 'Configure' options */
   {
     printf("LMTransport  [%s | %s]\n", tp0, tp1);
     return NULL;
   }
-  else if ( (int) args == 1 ) /* Show FS status */
+  else if ( args == arg_STATUS ) /* Show FS status */
   {
     printf("LMTransport  %s\n",
       (RdCMOS(CMOS_NB_TYPE) & NBTYPE_IP_BIT) ? tp1:tp0);
     return NULL;
   }
+#endif
 
   if ( GetArgs( args, argv, 1 ) < 1 )
     return Xlt_Error ( EBADPARAM );
 
+#ifndef NO_NETBEUI
   if ( stricmp ( argv[0], tp0 ) == 0 )
     WrCMOS(CMOS_NB_TYPE, RdCMOS(CMOS_NB_TYPE) & ~NBTYPE_IP_BIT );
-  else if ( stricmp ( argv[0], tp1 ) == 0 )
+  else
+#endif
+  if ( stricmp ( argv[0], tp1 ) == 0 )
     WrCMOS(CMOS_NB_TYPE, RdCMOS(CMOS_NB_TYPE) | NBTYPE_IP_BIT );
   else
     printf("'%s' isn't a supported option\n", argv[0] );
@@ -670,12 +706,12 @@ static _kernel_oserror *Cmd_NBNSIP( const char *args )
   struct in_addr address;
   int result;
 
-  if ( (int)args == 0 ) /* Show 'Configure' options */
+  if ( args == arg_CONFIGURE_SYNTAX ) /* Show 'Configure' options */
   {
     printf("LMNameServer xx.xx.xx.xx\n");
     return NULL;
   }
-  else if ( (int) args == 1 ) /* Show FS status */
+  else if ( args == arg_STATUS ) /* Show FS status */
   {
     int b0, b1, b2, b3;
 
@@ -786,6 +822,7 @@ _kernel_oserror *LM_Command ( const char *args, int argc, int cmd_no, void *pw )
 /* Service call handler --------------------------------- */
 static void LM_check_driver_status(_kernel_swi_regs *r);
 static void LM_check_internet_status(_kernel_swi_regs *r);
+static void LM_check_protocol_status(_kernel_swi_regs *r);
 
 void LM_Service ( int service_number, _kernel_swi_regs *r, void *pw )
 {
@@ -808,6 +845,10 @@ void LM_Service ( int service_number, _kernel_swi_regs *r, void *pw )
 
     case Service_DCIDriverStatus:
       LM_check_driver_status(r);
+      break;
+
+    case Service_DCIProtocolStatus:
+      LM_check_protocol_status(r);
       break;
 
     case Service_InternetStatus:
@@ -905,7 +946,9 @@ static err_t ProcessCmdLine ( const char *_line )
                  "\t-n\tto disable network browsing\n"
                  "\t-mMYNAME\tto set machine name to MYNAME\n"
                  "\t-i\tto use NetBIOS-over-IP transport\n"
+#ifndef NO_NETBEUI
                  "\t-t\tto use NetBEUI transport\n"
+#endif
                  "\t-v\tto show progress information on startup\n"
                  "\t-?\tto display this help\n" );
          return ENOTINSTALLED;
@@ -927,9 +970,11 @@ static err_t ProcessCmdLine ( const char *_line )
          LanMan_InitTransport(NB_NBIP_Setup);
          break;
 
+#ifndef NO_NETBEUI
       case 'T':
          LanMan_InitTransport(NB_NetBEUI_Setup);
          break;
+#endif
 
       default:
          printf("\nCommand line switch '-%c' not recognised\n", line[0] );
@@ -1067,6 +1112,15 @@ if (cmd_tail != NULL)
 
   LM_Vars.initialised = LMInitState_PreInit;
   (void) LM_init_phase_2();
+
+#ifndef NO_NETBEUI
+  /* Cheap way to set a callback ;-) Send service call announcing ourselves */
+  if (LM_InitedTransport == NB_NetBEUI_Startup) {
+    callevery_handler(&R, pw);
+    callbackflag = 2;
+  }
+#endif
+
   return NULL;
 }
 
@@ -1202,6 +1256,7 @@ static void LM_check_driver_status(_kernel_swi_regs *r)
                 }
         }
 
+#ifndef NO_NETBEUI
         if (NB_InitedTransport != NB_NetBEUI_Setup) {
                 return;
         }
@@ -1223,7 +1278,20 @@ static void LM_check_driver_status(_kernel_swi_regs *r)
 		        LM_GracefulClosedown();
 		}
         }
+#endif
 }
+
+static void LM_check_protocol_status(_kernel_swi_regs *r)
+{
+  /* A protocol module came or went (could be us in NetBEUI mode!)
+   * Inform our transport layer if we find it was Internet leaving.
+   */
+  const char *proto = (char *) r->r[4];
+  if (r->r[2] == protocolstatus_TERMINATING && strcmp(proto, "Internet") == 0) {
+    NB_InternetGone();
+  }
+}
+
 
 #ifdef TRACE
 
@@ -1376,13 +1444,17 @@ int module_printf(const char *str, ...)
 /* Callback management.  Some servers tend to idle-out connections.  This code stops
  * that happening.
  */
-static volatile int callbackflag = 0;
 
 _kernel_oserror *callback_handler(_kernel_swi_regs *r, void *pw)
 {
 	(void) r;
-	(void) pw;
-	if (callbackflag != 0) {
+	switch (callbackflag) {
+	  case 2:
+                /* Re-entrancy on this code is OK - announce we are starting */
+                callbackflag = 0;
+                lanman_announce_lanmanfs(protocolstatus_STARTING, pw);
+                break;
+	  case 1:
 	        debug0("Anti IdleOut Callback entered\n");
 	        SMB_AntiIdle();
 		callbackflag = 0;
