@@ -45,7 +45,8 @@
 
 
 static char DOSnamebuf  [NAMEBUF_LEN];
-
+static err_t FileGetAttribs ( char *filename, DOS_ATTRIBS *pda,
+    RISCOS_ATTRIBS *pra );
 
 #define name_R(x) ((char *)R[x])
 
@@ -402,9 +403,24 @@ _kernel_oserror *fsentry_func ( int *R )
       if ( err == OK )
         err = Xlt_ConvertPath( name_R(2), DOSnamebuf+DOS_NAME_LEN );
 #ifdef LONGNAMES
-      if ( err == OK )
       {
-        (void) Xlt_CnvRenameX2 ( DOSnamebuf, DOSnamebuf + DOS_NAME_LEN );
+        DOS_ATTRIBS    da;
+        RISCOS_ATTRIBS ra;
+
+        err = FileGetAttribs ( DOSnamebuf, &da, &ra );
+        if ( err == EFILENOTFOUND || err == EPATHNOTFOUND )
+        {
+          err = OK;
+        }
+
+        if ( err == OK )
+        {
+          (void) Xlt_CnvRenameX2 ( DOSnamebuf, DOSnamebuf + DOS_NAME_LEN );
+        }
+        if (da.attr & ATTR_DIR)     // force strip RO extent from dir name
+        {
+          Xlt_CnvRenameX2 ( DOSnamebuf+DOS_NAME_LEN,DOSnamebuf+DOS_NAME_LEN);
+        }
       }
 #endif
       if ( err == OK )

@@ -31,6 +31,7 @@
 #include "kernel.h"
 #include "stdtypes.h"
 #include "Global/FileTypes.h"
+#include "swis.h"
 
 #include "Xlate.h"
 #include "attr.h"
@@ -1296,12 +1297,22 @@ return res;
  * Note that the file saving routine actually uses this
  * routine to strip filetype information by passing both
  * parameters the same.  This must continue to function.
+ * JB 18/12/2003 .. make sure the ,xxx is only removed IF
+ * both names are NOT (identical and contains .xxx)
+ * (function only seen in file renaming so far JB)
  */
 err_t Xlt_CnvRenameX2 ( char *src, char *dst )
 {
   RISCOS_ATTRIBS RA;
-  char *terminator, *nterm;
+  char  *nterm;  // *terminator
+  int cnvq=strcmp(src,dst); // check if just need to strip..
 
+  // if src and dst are same, check if it should have the ,xxx appended
+  // if so, ensure it still is...
+  if(!cnvq)
+  {
+    if((strlen(dst)>4) && (dst[strlen(dst)-4] == ',')) cnvq++;
+  }
   if (Xlt_SplitLeafnameX2 ( dst, &RA, &nterm ) != OK) {
     /* No type information - find end of string */
     nterm = strchr(dst, '\0');
@@ -1310,11 +1321,9 @@ err_t Xlt_CnvRenameX2 ( char *src, char *dst )
     /* Strip old type information in case source didn't have any either */
     *nterm = '\0';
   }
-
-  if (Xlt_SplitLeafnameX2 ( src, &RA, &terminator ) == OK) {
-    (void) strcpy(nterm, terminator);
-  }
-
+  Xlt_SplitLeafnameX2 ( src, &RA, &nterm ) ; // recover source's filetype
+  // if not identical strings.. add type if not in dos name
+  if (cnvq)Xlt_AddROType (dst,RA.loadaddr);
   return OK;
 }
 #endif
@@ -1323,13 +1332,14 @@ err_t Xlt_CnvRenameX2 ( char *src, char *dst )
 
 #ifdef LONGNAMES
 /* Adds the type suffix for a RISC OS filename.  The type is extracted
- * from the passed load address.
+ * from the passed load address. unless DOS name is sufficient
  */
 int Xlt_AddROType ( char *leafname, uint loadaddr )
 {
    RISCOS_ATTRIBS RA;
-   char *terminator;
-   char typebuf[8];
+   char *nterm, *term;
+   char typebuf[8],ftypebuf[8];
+   int ftype;
 
    typebuf[0] = FileChar_TypedNamePrefix;
    if (loadaddr == deaddead) {
@@ -1343,15 +1353,37 @@ int Xlt_AddROType ( char *leafname, uint loadaddr )
      sprintf(typebuf+1, "%03x", type);
    }
 
-   if (Xlt_SplitLeafnameX2 ( leafname, &RA, &terminator) == OK) {
-     int extn_add_or_remove = (*terminator != *typebuf);
-     strcpy(terminator, typebuf);
-     return (RA.loadaddr >> 8) != (loadaddr >> 8) || (extn_add_or_remove);
+   // strip any acorn filetype suffix
+   if (Xlt_SplitLeafnameX2 ( leafname, &RA, &nterm ) != OK) {
+     /* No type information - find end of string */
+     nterm = strchr(leafname, '\0');
    }
    else {
-     strcat(leafname, typebuf);
-     return 1;
+     /* Strip old type information in case source didn't have any either */
+     *nterm = '\0';
    }
+   // check leaf for dos file type, else add acorn extra...
+   if (leafname[1] == ':')
+   {
+     term = strrchr(leafname, '.');  /* strrchr catches names like "file.tar.gz" */
+   }
+   else
+   {
+     term = strrchr(leafname, '/');  /* strrchr catches names like "file/tar/gz" */
+   }
+
+   if(term)
+   {                                                // found a DOS type
+     if(!_swix(MimeMap_Translate,_INR(0,2)|_OUT(3), // so check the mimemap
+                     MMM_TYPE_DOT_EXTN,term,
+                     MMM_TYPE_RISCOS,&ftype))
+     {                                              // got a name valid in RISCOS
+        sprintf(ftypebuf,",%03x",ftype);
+        if(!strcmp(typebuf,ftypebuf)) return 1;     // its OK.. no need to append type
+     }
+   }
+   strcat(leafname, typebuf);
+   return 1;
 }
 #endif
 
