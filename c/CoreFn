@@ -34,7 +34,9 @@
 #include "xlate.h"
 #include "attr.h"
 #include "smb.h"
+#include "Omni.h"
 #include "Transact.h"
+#include "NameCache.h"
 
 
 /* Some globals ================================== */
@@ -325,6 +327,35 @@ static err_t Func_ReadDir ( int reason, char *path_name, char *buffer,
   return res;
 }
 
+static err_t Func_ReadFreeSpace ( int sixtyfourbit, char *name, int *R )
+{
+  _kernel_swi_regs r;
+  _kernel_oserror *err;
+  struct disk_size_response dsr;
+
+printf("Read free space\n");
+
+  r.r[0] = 2;
+  r.r[2] = (int) &dsr;
+  r.r[3] = (int) name;
+  err = Omni_FreeOp_SWI(&r);
+  if (err != NULL)
+    return ENOTPRESENT;
+
+  R[0] = dsr.freeblks;
+  if (sixtyfourbit) {
+    R[1] = R[4] = 0;
+    R[2] = 0x7FFFFFFF;
+    R[3] = dsr.totalblks;
+  }
+  else {
+    R[1] = 0x7FFFFFFF;
+    R[2] = dsr.totalblks;
+  }
+
+  return OK;
+}
+
 /* Func ============================================================= */
 
 _kernel_oserror *fsentry_func ( int *R )
@@ -434,10 +465,27 @@ _kernel_oserror *fsentry_func ( int *R )
                R[3], R[4], R[5], &R[3], &R[4] );
         break;
 
+    case FSEntry_Func_Reason_ResolveWildcard:
+      /* Tell FileSwitch to do it itself */
+      R[4] = -1;
+      err = OK;
+      break;
+
+    case FSEntry_Func_Reason_ReadFreeSpace:
+      err = Func_ReadFreeSpace ( 0, name_R(1), R );
+        break;
+    case FSEntry_Func_Reason_ReadFreeSpace64:
+      err = Func_ReadFreeSpace ( 1, name_R(1), R );
+        break;
+
     default:
       err = EBADPARAM;
       break;
   }
+
+#ifdef LONGNAMES
+  NameCache_Flush(ncf_FSFUNC_EXIT);
+#endif
 
   return Xlt_Error(err);
 }
@@ -684,6 +732,10 @@ _kernel_oserror *fsentry_file( int *R )
       break;
   }
 
+#ifdef LONGNAMES
+  NameCache_Flush(ncf_FSFILE_EXIT);
+#endif
+
   return Xlt_Error(err);
 }
 
@@ -805,6 +857,9 @@ _kernel_oserror *fsentry_open( int *R )
   else
     R[1] = 0;
 
+#ifdef LONGNAMES
+  NameCache_Flush(ncf_FSOPEN_EXIT);
+#endif
   return Xlt_Error(err);
 }
 

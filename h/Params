@@ -45,7 +45,8 @@ typedef enum
         FSEntry_Args_Reason_FlushFileBuffer = 6,
         FSEntry_Args_Reason_EnsureFileSize = 7,
         FSEntry_Args_Reason_WriteZerosToFile = 8,
-        FSEntry_Args_Reason_ReadFileDateStamp = 9
+        FSEntry_Args_Reason_ReadFileDateStamp = 9,
+        FSEntry_Args_Reason_IOCtl = 11
 }
         FSEntry_Args_Reason;
 
@@ -88,7 +89,10 @@ typedef enum
         FSEntry_Func_Reason_PrintStartUpBanner = 17,
         FSEntry_Func_Reason_SetDirectoryContexts = 18,
         FSEntry_Func_Reason_ReadDirectoryEntriesAndInformation = 19,
-        FSEntry_Func_Reason_OutputFullInformationOnObjects = 20
+        FSEntry_Func_Reason_OutputFullInformationOnObjects = 20,
+        FSEntry_Func_Reason_ResolveWildcard = 24,
+        FSEntry_Func_Reason_ReadFreeSpace = 30,
+        FSEntry_Func_Reason_ReadFreeSpace64 = 35
 }
         FSEntry_Func_Reason;
 

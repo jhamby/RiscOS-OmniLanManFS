@@ -31,7 +31,7 @@
 #define FSControl_AddFilingSystem       12
 #define FSControl_SelectFilingSystem    14
 #define FSControl_RemoveFilingSystem    16
-#define Information_Block_Size          11
+#define Information_Block_Size          12
 
 #define INFO_SPECIALFIELD               0x80000000
 #define INFO_INTERACTIVE                0x40000000
@@ -49,8 +49,11 @@
 #define INFO_USE_FUNC9                  0x00040000
 #define INFO_EXTRA_INFO                 0x00020000
 
+#define INFO2_SUPPORTS_IOCTL            0x00000008
 
-#define Information_Word                (Our_FS_Number|INFO_FILE_TIME)
+
+#define Information_Word                (Our_FS_Number|INFO_FILE_TIME|INFO_EXTRA_INFO)
+#define Information2_Word               (INFO2_SUPPORTS_IOCTL)
 #define Service_FSRedeclare             0x40
 #define Service_ResourceFSStarting      0x000060
 #define ASpace                          ' '

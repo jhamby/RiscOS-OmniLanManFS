@@ -4,11 +4,11 @@
  *
  */
 #define Module_MajorVersion_CMHG     	1.87
-#define Module_MinorVersion_CMHG	1.1.1.1.2.9
-#define Module_Date_CMHG      		03 Feb 1999
+#define Module_MinorVersion_CMHG	1.1.1.1.2.10
+#define Module_Date_CMHG      		05 Feb 1999
 
 #define Module_MajorVersion     	"1.87"
 #define Module_Version                  187
-#define Module_MinorVersion		"1.1.1.1.2.9"
-#define Module_Date      		"03 Feb 1999"
+#define Module_MinorVersion		"1.1.1.1.2.10"
+#define Module_Date      		"05 Feb 1999"
 

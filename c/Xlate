@@ -35,7 +35,7 @@
 #include "omni.h"
 #include "lmvars.h"
 #include "SMB.h"
-
+#include "NameCache.h"
 
 #ifdef LONGNAMES
 #define FileChar_TypedNamePrefix        ','
@@ -758,6 +758,10 @@ static err_t Xlt_NameXlateCallbackX2 ( BYTE *entry, int format, void *_dst )
     char *dptr = 1 + strrchr(dst->matchbuf, '\\');
     err_t res = OK;
 
+    if (dst->dstcpy[0] != '*') {
+      return EOUTOFMEM;
+    }
+
     debug3("Xlt_NameXlateCallbackX2: checking `%s', against `%s' in `%s'\n",
         (char *) entry + 23,
         dptr,
@@ -794,6 +798,10 @@ static err_t Xlt_NameXlateCallbackX2 ( BYTE *entry, int format, void *_dst )
 
     if (res == EOUTOFMEM) {
       /* Update stored leafname */
+      if (dst->dstcpy[0] == '*') {
+         dst->dstcpy[0] = '\0';
+         NameCache_Add(dst->dstcpybuf, entry);
+      }
       strcpy(dst->dstcpy, (char *) entry+23);
     }
     return res;
@@ -824,6 +832,7 @@ static err_t Xlt_NameROtoDOSX2_sub ( char *dst, char *src, int level )
    * private.dstcpy must point at the * character so that the callback
    * function can write the matched target name straight in
    */
+  (void) NameCache_Locate(private.matchbuf);
   strcpy(private.dstcpybuf, private.matchbuf);
   private.dstcpy = strrchr(private.dstcpybuf, '\\');
   if (private.dstcpy) {

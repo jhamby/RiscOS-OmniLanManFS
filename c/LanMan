@@ -203,14 +203,13 @@ _kernel_oserror * LM_Finalise (int fatal, int podule, void *pw)
 
 static _kernel_oserror *LM_Declare ( void )
 {
-  _kernel_swi_regs r;
   _kernel_oserror *err;
   int InfoBlk [ Information_Block_Size ];
 
   LM_Declared = false;
 
   InfoBlk[0] = (int)FilingSystemName             - (int)Image_RO_Base;
-  InfoBlk[1] = -1; /*(int)"Lan Man network connection" - (int)Image_RO_Base;*/
+  InfoBlk[1] = -1; /* Self-ident - request call FSFunc_PrintStartupBanner */
   InfoBlk[2] = (int) veneer_fsentry_open         - (int)Image_RO_Base;
   InfoBlk[3] = (int) veneer_fsentry_getbytes     - (int)Image_RO_Base;
   InfoBlk[4] = (int) veneer_fsentry_putbytes     - (int)Image_RO_Base;
@@ -220,14 +219,10 @@ static _kernel_oserror *LM_Declare ( void )
   InfoBlk[8] = Information_Word;
   InfoBlk[9] = (int) veneer_fsentry_func         - (int)Image_RO_Base;
   InfoBlk[10] = (int)veneer_fsentry_gbpb         - (int)Image_RO_Base;
+  InfoBlk[11] = Information2_Word;
 
-  r.r[0] = FSControl_AddFilingSystem;
-  r.r[1] = (int)Image_RO_Base;
-  r.r[2] = (int)InfoBlk - (int)Image_RO_Base;
-  r.r[3] = (int)LM_pw;
-
-
-  err = _kernel_swi( XOS_Bit | OS_FSControl, &r, &r );
+  err = _swix(OS_FSControl, _INR(0,3), FSControl_AddFilingSystem, Image_RO_Base,
+    (int)InfoBlk - (int)Image_RO_Base, LM_pw);
   if ( err == NULL )
     LM_Declared=true;
 
