@@ -1174,7 +1174,7 @@ int NBIP_CallbackFn_handler(void)
     FD_ZERO(&read_set);
     FD_SET( NBNS_Socket, &read_set );
 
-    if ( select ( FD_SETSIZE, &read_set, NULL, NULL, &tv ) == 0 )
+    if ( select ( NBNS_Socket + 1, &read_set, NULL, NULL, &tv ) == 0 )
       break;
 
     flen = sizeof(sa);

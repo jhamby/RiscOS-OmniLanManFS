@@ -475,43 +475,7 @@ static BUFCHAIN MkDataString ( BUFCHAIN pB, int type, char *ptr )
 
 /* --------------------------- */
 
-#ifdef DEBUG
-static void DumpBuffer(void *ptr, int len)
-{
-        static char DumpBuf[256];
-        const char *membuf = ptr;
-        char *db;
-        int i,j;
-        db = DumpBuf;
-        *db = 0;
-        for (i=0; i<((len+31)&~31); ++i) {
-                if (!(i & 31)) {
-                        db += sprintf(db, "  ");
-                        if (i) for (j = i - 32; j != i; ++j) {
-                                db += sprintf(db, "%c", (membuf[j]>=32 && membuf[j] != 0x7f) ?
-                                membuf[j] : '.');
-                        }
-                        dprintf(("BufferDump", "%s\n", DumpBuf));
-                        db = DumpBuf;
-                        db += sprintf(db, "%04x: ", i);
-                }
-                if (i>=len) {
-                        db += sprintf(db, "  ");
-                        if ((i & 1)) db += sprintf(db, " ");
-                }
-                else {
-                        db += sprintf(db, "%02x", membuf[i]);
-                        if ((i & 1)) db += sprintf(db, " ");
-                }
-        }
-        if (i) for (db += sprintf(db, "  "), j = i - 32; j != i; ++j) db += sprintf(db, "%c",
-            j>=len ? ' ' : (membuf[j]>=32 && membuf[j] != 0x7f) ?
-            membuf[j] : '.');
-	dprintf(("BufferDump", "%s\n", DumpBuf));
-}
-#else
-#define DumpBuffer(ptr, len) ((void)0)
-#endif
+#define DumpBuffer(ptr, len) ddumpbuf("smb_1", ptr, len, 0)
 
 #ifdef DEBUG
 static BUFCHAIN DumpChain(BUFCHAIN pB)
@@ -637,10 +601,7 @@ static err_t Do_SMBResponse(hSHARE hS, int cmd, BUFCHAIN *ppB_out )
     return res;
 
   /* Extract received data */
-  debug2("Do_SMB (cmd=0x%x) - NB_GetData returned %d bytes\n", cmd, ChainLen(pB_rx));
-#ifdef DEBUG
-  if (cmd == SMBwriteBraw) pB_rx = DumpChain(pB_rx);
-#endif
+  dprintf(("smb_2", "Do_SMB (cmd=0x%x) - NB_GetData => %d bytes\n", cmd, ChainLen(pB_rx)));
 
   SMB_RxHdr.wct = 0;
   SMB_RxByteCount = 0;
@@ -649,18 +610,11 @@ static err_t Do_SMBResponse(hSHARE hS, int cmd, BUFCHAIN *ppB_out )
   pB_rx = GetData ( pB_rx, &SMB_RxHdr, SMBHDR_SIZE );
   wct_rx = SMB_RxHdr.wct;
 
-  if (SMB_RxHdr.command == SMBchkpth) {
-    /* Discard the 'ping' response */
-    debug0("This response was actually to the previous chkpth call\n");
-    FreeChain(pB_rx);
-    return Do_SMBResponse(hS, cmd, ppB_out);
-  }
-
 /* sbrodie: moved this from just above "OK - all was well" comment */
   /* Process errors back from server */
   if ( SMB_RxHdr.errclass != 0 )
   {
-    debug1("Do_SMB: errclass was %d\n", SMB_RxHdr.errclass);
+    dprintf(("", "Do_SMB: errclass was %d\n", SMB_RxHdr.errclass));
     FreeChain(pB_rx);
     return Err_Translate ( SMB_RxHdr.errclass,
         SMB_RxHdr.errlo + (SMB_RxHdr.errhi << 8) );
@@ -686,6 +640,12 @@ static err_t Do_SMBResponse(hSHARE hS, int cmd, BUFCHAIN *ppB_out )
   if (cmd == SMBnegprot) debug2("Protocol negotiation returned %d words and %d bytes\n",
           wct_rx, SMB_RxByteCount);
 #endif
+
+  if (SMB_RxHdr.command == SMBchkpth) {
+    /* Discard the 'ping' response */
+    dprintf(("smb_1", "This response was actually to the previous chkpth call\n"));
+    ppB_out = NULL;
+  }
 
   SMB_RxWordCount = wct_rx;
 
@@ -748,7 +708,12 @@ static err_t Do_SMB_threadsafe ( hSHARE hS, int cmd, int wct_in, BUFCHAIN pB_in,
   if ( res != OK )
     return res;
 
-  return Do_SMBResponse(hS, cmd, ppB_out);
+  do {
+    /* MUST avoid recursive calls to Do_SMBResponse */
+    res = Do_SMBResponse(hS, cmd, ppB_out);
+  } while (res == OK && SMB_RxHdr.command == SMBchkpth);
+
+  return res;
 }
 
 static err_t Do_SMB ( hSHARE hS, int cmd, int wct_in, BUFCHAIN pB_in,
@@ -1032,7 +997,6 @@ static err_t SMB_SessSetup ( hSHARE hS, char *userid, char *passwd )
     if (pB) pB = AddChain(pB, userid, strlen(userid) + 1);
     if (pB) pB = AddChain(pB, passwd, strlen(passwd));
     if (pB) pB = DumpChain(pB);
-// FreeChain(pB); return EOUTOFMEM;
     if (pB == NULL)
       return EOUTOFMEM;
     res = Do_SMB ( hS, SMBsesssetup, 13, pB, NULL );
@@ -3065,7 +3029,12 @@ retry_transact2:
     FreeChain(pBres);
 
     if (tot_data_rcvd < pT->data_out_len || tot_param_rcvd < pT->parms_out_len) {
-      res = Do_SMBResponse(hS, SMBtrans2, &pBres);
+
+      do {
+        /* MUST avoid recursive calls to Do_SMBResponse */
+        res = Do_SMBResponse(hS, SMBtrans2, &pBres);
+      } while (res == OK && SMB_RxHdr.command == SMBchkpth);
+
       if (res != OK)
         return res;
       /* Extract received data */
@@ -3200,14 +3169,10 @@ void SMB_AntiIdle ( void )
     if (t > (hS->hServer->last_xact + 60 * 10)) {
       char echodat[sizeof("A:\\")];
       (void) sprintf(echodat, "%c:\\", 'A' + letter);
-      debug1("Anti idle-out measure: %s\n", echodat);
-#ifdef TRACE
+      dprintf(("idle_1", "Anti idle-out measure: %s\n", echodat));
       if (ELANMANFSINUSE == SMB_ChkPath(echodat)) {
-        debug0("Re-entrancy due to idle-out check prevented\n");
+        dprintf(("idle_1", "Re-entrancy due to idle-out check prevented\n"));
       }
-#else
-      (void) SMB_ChkPath(echodat);
-#endif
     }
   }
 }

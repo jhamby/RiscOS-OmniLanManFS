@@ -1,4 +1,4 @@
-| Copyright 1998 Acorn Computers Ltd
+| Copyright 2000 Pace Micro Technology plc
 |
 | Licensed under the Apache License, Version 2.0 (the "License");
 | you may not use this file except in compliance with the License.
@@ -13,5 +13,5 @@
 | limitations under the License.
 |
 Dir <Obey$Dir>
-amu_machine clean COMPONENT=LanManFS
-stripdepnd Makefile
+wimpslot 4000k
+amu_machine rm.LanManFSD
