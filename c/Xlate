@@ -1331,8 +1331,7 @@ int Xlt_AddROType ( char *leafname, uint loadaddr )
    }
    else {
      const int type = GET_FILETYPE(loadaddr);
-     if (type == 0xFFF) *typebuf = '\0';
-     else sprintf(typebuf+1, "%03x", type);
+     sprintf(typebuf+1, "%03x", type);
    }
 
    if (Xlt_SplitLeafnameX2 ( leafname, &RA, &terminator) == OK) {
