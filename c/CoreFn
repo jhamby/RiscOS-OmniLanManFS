@@ -360,11 +360,28 @@ _kernel_oserror *fsentry_func ( int *R )
       err = Xlt_ConvertPath( name_R(1), DOSnamebuf);
       if ( err == OK )
         err = Xlt_ConvertPath( name_R(2), DOSnamebuf+DOS_NAME_LEN );
+#ifdef LONGNAMES
+      if ( err == OK )
+      {
+        (void) Xlt_CnvRenameX2 ( DOSnamebuf, DOSnamebuf + DOS_NAME_LEN );
+      }
+#endif
       if ( err == OK )
         err = SMB_Rename ( DOSnamebuf, DOSnamebuf+DOS_NAME_LEN );
 
 #ifdef LONGNAMES
-      if (SMB_IsLongNameFS(DOSnamebuf + DOS_NAME_LEN)) break;
+      if (SMB_IsLongNameFS(DOSnamebuf + DOS_NAME_LEN)) {
+         if ( err == EBADRENAME )
+         {
+           R[1] = 1;
+           err = OK;
+         }
+         else
+         {
+           R[1] = 0;
+         }
+         break;
+      }
       /* Don't bother with any of this rubbish for long filename discs */
 #endif
 
@@ -479,6 +496,17 @@ _kernel_oserror *fsentry_file( int *R )
       ra.execaddr = R[3];
       ra.flags    = ROA_READ | ROA_WRITE;
       Xlt_CnvROtoDOS(&ra, &da, CNV_DATETIME | CNV_ATTRIBS );
+#ifdef LONGNAMES
+      strncpy(DOSnamebuf + DOS_NAME_LEN, DOSnamebuf, DOS_NAME_LEN);
+      if (Xlt_AddROType(DOSnamebuf, ra.loadaddr)) {
+        /* We changed the filetype - therefore delete old file */
+        err = SMB_Delete(DOSnamebuf + DOS_NAME_LEN);
+        if (err != OK && err != EFILENOTFOUND) {
+           /* Oh dear - looks likely the create would fail anyway! */
+           break;
+        }
+      }
+#endif
 
       err = SMB_Create ( DOSnamebuf, &da, &FH );
       if ( err == OK )
@@ -539,6 +567,14 @@ _kernel_oserror *fsentry_file( int *R )
       {
         ra.loadaddr = R[2];
         Xlt_CnvROtoDOS ( &ra, &da, CNV_DATETIME );
+#ifdef LONGNAMES
+        strncpy(DOSnamebuf + DOS_NAME_LEN, DOSnamebuf, DOS_NAME_LEN);
+        if (Xlt_AddROType(DOSnamebuf + DOS_NAME_LEN, ra.loadaddr)) {
+          err = SMB_Rename(DOSnamebuf, DOSnamebuf + DOS_NAME_LEN);
+          if (err != OK) break;
+          strcpy(DOSnamebuf, DOSnamebuf + DOS_NAME_LEN);
+        }
+#endif
       }
       else if ( R[0] == FSEntry_File_Reason_WriteExecutionAddress )
       {
@@ -559,6 +595,15 @@ _kernel_oserror *fsentry_file( int *R )
       ra.loadaddr = R[2];
       ra.execaddr = R[3];
       ra.flags = R[5];
+
+#ifdef LONGNAMES
+      strncpy(DOSnamebuf + DOS_NAME_LEN, DOSnamebuf, DOS_NAME_LEN);
+      if (Xlt_AddROType(DOSnamebuf + DOS_NAME_LEN, ra.loadaddr)) {
+        err = SMB_Rename(DOSnamebuf, DOSnamebuf + DOS_NAME_LEN);
+        if (err != OK) break;
+        strcpy(DOSnamebuf, DOSnamebuf + DOS_NAME_LEN);
+      }
+#endif
 
       Xlt_CnvROtoDOS ( &ra, &da, CNV_ATTRIBS | CNV_DATETIME );
       Attr_SetInfo ( DOSnamebuf, &ra );

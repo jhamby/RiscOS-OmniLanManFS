@@ -83,14 +83,13 @@ DBG_OBJS  = od.LanMan o.Omni od.Logon od.CoreFn od.Printers \
             od.Xlate od.buflib Interface.o RMInfo.o Errors.o od.Transact \
             o.LLC o.NetBIOS o.SMB o.Attr od.RPC o.NBIP od.Stats LanMan_MH.o 
 
-OBJSI     = i.LanMan i.Omni i.Logon i.CoreFn i.Printers i.PathMunge \
+OBJSI     = i.LanMan i.Omni i.Logon i.CoreFn i.Printers \
             i.Xlate i.buflib i.Transact \
             i.LLC i.NetBIOS i.SMB i.Attr i.RPC i.NBIP i.Stats
 
 OBJSINST  = LanMan_MH.o inst.LanMan inst.Omni inst.Logon inst.CoreFn inst.Printers \
             inst.Xlate inst.buflib Interface.o RMInfo.o Errors.o inst.Transact\
-            inst.LLC inst.NetBIOS inst.SMB inst.Attr inst.RPC inst.NBIP inst.Stats \
-            inst.PathMunge 
+            inst.LLC inst.NetBIOS inst.SMB inst.Attr inst.RPC inst.NBIP inst.Stats 
 
 LanMan_MH.h: LanMan_MH.o
 	${CMHG} ${CMHGFLAGS} cmhg.$* -d $@

@@ -73,6 +73,24 @@ extern _kernel_oserror *Xlt_Error ( err_t err );
 extern err_t Xlt_SetOSError ( _kernel_oserror *err );
 
 #ifdef LONGNAMES
+/* Looks at the specified path/leaf name and determines if it has
+ * a ,xxx type specifier on the end of it.  If it does, it returns
+ * the address of the comma in the terminator parameter, and updates
+ * the RISCOS_ATTRIBS.loadaddr field to contain the type of the file.
+ * The source string is not modified (but cannot be const without
+ * requiring a cast to store the address of the terminator)
+ */
 extern err_t Xlt_SplitLeafnameX2 ( char *leafname, RISCOS_ATTRIBS *pRA,
   char **terminator);
+
+/* Looks at the source filename for a rename operation and updates the
+ * target filename to preserve any filetyping information
+ */
+extern err_t Xlt_CnvRenameX2 ( char *src, char *dst );
+
+/* Alters the filename specified so that it co-incides with the
+ * type encoded in the given "load addr" parameter,
+ * Returns 1 if it changed the filetype, 0 otherwise
+ */
+extern int Xlt_AddROType ( char *leafname, uint loadaddr );
 #endif

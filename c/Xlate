@@ -1044,3 +1044,66 @@ err_t Xlt_SplitLeafnameX2 ( char *leafname, RISCOS_ATTRIBS *pRA,
 #endif
 
 /* ------------------------------- */
+
+#ifdef LONGNAMES
+/* Copies the filetype information from one name to another.
+ * Note that the file saving routine actually uses this
+ * routine to strip filetype information by passing both
+ * parameters the same.  This must continue to function.
+ */
+err_t Xlt_CnvRenameX2 ( char *src, char *dst )
+{
+  RISCOS_ATTRIBS RA;
+  char *terminator, *nterm;
+
+  if (Xlt_SplitLeafnameX2 ( dst, &RA, &nterm ) != OK) {
+    /* No type information - find end of string */
+    nterm = strchr(dst, '\0');
+  }
+  else {
+    /* Strip old type information in case source didn't have any either */
+    *nterm = '\0';
+  }
+
+  if (Xlt_SplitLeafnameX2 ( src, &RA, &terminator ) == OK) {
+    (void) strcpy(nterm, terminator);
+  }
+
+  return OK;
+}
+#endif
+
+/* ------------------------------- */
+
+#ifdef LONGNAMES
+int Xlt_AddROType ( char *leafname, uint loadaddr )
+{
+   RISCOS_ATTRIBS RA;
+   char *terminator;
+   char typebuf[8];
+
+   typebuf[0] = FileChar_TypedNamePrefix;
+   if (loadaddr == 0xDEADDEAD) {
+     strcpy(typebuf+1, FileString_DeadFile);
+   }
+   else if ((loadaddr & 0xFFF00000) != 0xFFF00000) {
+     strcpy(typebuf+1, FileString_UntypedFile);
+   }
+   else {
+     int type = (loadaddr << 12) >> 20;
+     if (type == 0xFFF) *typebuf = '\0';
+     else sprintf(typebuf+1, "%03x", (loadaddr << 12) >> 20);
+   }
+
+   if (Xlt_SplitLeafnameX2 ( leafname, &RA, &terminator) == OK) {
+     strcpy(terminator, typebuf);
+     return (RA.loadaddr >> 8) != (loadaddr >> 8);
+   }
+   else {
+     strcat(leafname, typebuf);
+     return 1;
+   }
+}
+#endif
+
+/* ------------------------------- */
