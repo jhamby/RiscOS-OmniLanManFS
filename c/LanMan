@@ -47,11 +47,13 @@
 #include "RPC.h"
 #include "stats.h"
 #include "logon.h"
-#include "DCI4.h"
+#include "sys/dcistructs.h"
 
 #include "sys/types.h"
 #include "netinet/in.h"
 #include "arpa/inet.h"
+
+#include "LanMan_MH.h"
 
 
 /* ---------------------------------- */
@@ -62,6 +64,7 @@ extern char *LM_Status(void);
 #define DEFAULT_ETHER_TYPE 	"eh0"
 
 typedef void (*pfnShutdown)(void);
+typedef void (*pfnTransportInit)(void);
 
 enum {
         LMInitState_Uninitialised,
@@ -76,6 +79,7 @@ static _kernel_oserror *LM_init_phase_2(void);
 
 int  LM_pw;          /* Our module's private word */
 struct NETBIOS_TRANSPORT *NB_ActiveTransport; /* Selected net transport */
+static pfnTransportInit NB_InitedTransport; /* Identify active transport */
 static bool LM_Declared;  /* True if we're registered as a filing system */
 
 /* ------------------------------- */
@@ -110,7 +114,7 @@ int RdCMOS ( int addr )
 
 /* ------------------ */
 
-static void WrCMOS ( int addr, int data )
+static void WrCMOS ( int addr, unsigned int data )
 {
   _kernel_osbyte ( 162, addr, data );
 }
@@ -140,6 +144,10 @@ static void SetFSName(char *buf_in)
 static void GetFSName ( char *buf_out )
 {
   int i;
+
+  if (!_kernel_getenv("Inet$ServerName", buf_out, CMOS_FSERVER)) {
+          return;
+  }
 
   if ( RdCMOS ( CMOS_FSSTAT ) == 0 )
   {
@@ -236,7 +244,7 @@ static char Cmdbuf[ MAX_CMDLEN ];
 
 /* --------------------- */
 
-static int GetArgs ( char *args, char *argv_out[], int maxargs )
+static int GetArgs ( const char *args, char *argv_out[], int maxargs )
 {
   /* Splits "args" into a number of separate arguments. Each one is
      copied into Cmdbuf so it is held statically. Pointers to the
@@ -278,7 +286,7 @@ static int GetArgs ( char *args, char *argv_out[], int maxargs )
 
 /* --------------------- */
 
-static _kernel_oserror *Cmd_LANMAN ( char *args )
+static _kernel_oserror *Cmd_LANMAN ( const char *args )
 {
   /* No args! */
   _kernel_swi_regs r;
@@ -292,7 +300,7 @@ static _kernel_oserror *Cmd_LANMAN ( char *args )
 
 /* --------------------- */
 
-static _kernel_oserror *Cmd_CONNECT ( char *args )
+static _kernel_oserror *Cmd_CONNECT ( const char *args )
 {
   char *argv[5];
   err_t res;
@@ -321,7 +329,7 @@ static _kernel_oserror *Cmd_CONNECT ( char *args )
 
 /* --------------------- */
 
-static _kernel_oserror *Cmd_DISCONNECT ( char *args )
+static _kernel_oserror *Cmd_DISCONNECT ( const char *args )
 {
   char *argv[1];
   int mountID;
@@ -343,6 +351,12 @@ static _kernel_oserror *Cmd_DISCONNECT ( char *args )
 struct LMvars LM_Vars;
 
 /* --------------------- */
+
+static void LanMan_InitTransport(pfnTransportInit i)
+{
+        NB_InitedTransport = i;
+        (*i)();
+}
 
 static void SetDefaultVars ( void )
 {
@@ -386,17 +400,13 @@ static void SetDefaultVars ( void )
   LM_Vars.namemode  = NM_FIRSTCAPS;
 
   /* Set transport type from CMOS, unless overridden on command line */
-
-  if ( RdCMOS ( CMOS_NB_TYPE ) & NBTYPE_IP_BIT )
-    NB_NBIP_Setup();
-  else
-    NB_NetBEUI_Setup();
-
+  LanMan_InitTransport(RdCMOS ( CMOS_NB_TYPE ) & NBTYPE_IP_BIT  ?
+  	NB_NBIP_Setup : NB_NetBEUI_Setup);
 }
 
 /* --------------------- */
 
-static _kernel_oserror *Cmd_LOGOFF( char *args )
+static _kernel_oserror *Cmd_LOGOFF( const char *args )
 {
   (void) args;
   Lgn_Logoff();
@@ -405,7 +415,7 @@ static _kernel_oserror *Cmd_LOGOFF( char *args )
 
 /* --------------------- */
 
-static _kernel_oserror *Cmd_LOGON( char *args )
+static _kernel_oserror *Cmd_LOGON( const char *args )
 {
   char *argv[3];
   if ( GetArgs(args, argv, 3) < 2 )
@@ -419,7 +429,7 @@ static _kernel_oserror *Cmd_LOGON( char *args )
 
 /* --------------------- */
 
-static _kernel_oserror *Cmd_LMINFO ( char *args )
+static _kernel_oserror *Cmd_LMINFO ( const char *args )
 {
   (void) args;
   Omni_Debug();
@@ -430,7 +440,7 @@ static _kernel_oserror *Cmd_LMINFO ( char *args )
 
 /* --------------------- */
 
-static _kernel_oserror *Cmd_LMNAMEMODE ( char *args )
+static _kernel_oserror *Cmd_LMNAMEMODE ( const char *args )
 {
   char *argv[1];
   int tmp;
@@ -448,7 +458,7 @@ static _kernel_oserror *Cmd_LMNAMEMODE ( char *args )
 
 /* --------------------- */
 
-static _kernel_oserror *Cmd_LMSERVER ( char *args )
+static _kernel_oserror *Cmd_LMSERVER ( const char *args )
 {
   char *argv[MAX_ARGS];
   int i;
@@ -472,7 +482,7 @@ static _kernel_oserror *Cmd_LMSERVER ( char *args )
 
 /* --------------------- */
 
-static _kernel_oserror *Cmd_LMPRINTERS ( char *args )
+static _kernel_oserror *Cmd_LMPRINTERS ( const char *args )
 {
   char *argv[MAX_ARGS];
   int i;
@@ -497,7 +507,7 @@ static _kernel_oserror *Cmd_LMPRINTERS ( char *args )
 
 /* --------------------- */
 
-static _kernel_oserror *Cmd_LMSTATS ( char *args )
+static _kernel_oserror *Cmd_LMSTATS ( const char *args )
 {
   (void) args;
   Stat_Show();
@@ -506,7 +516,7 @@ static _kernel_oserror *Cmd_LMSTATS ( char *args )
 
 /* --------------------- */
 
-static _kernel_oserror *Cmd_FS ( char *args )
+static _kernel_oserror *Cmd_FS ( const char *args )
 {
   /* This is a *Configure/Status command handler - it's therefore unusual */
   char *argv[1];
@@ -533,7 +543,7 @@ static _kernel_oserror *Cmd_FS ( char *args )
 
 /* --------------------- */
 
-static _kernel_oserror *Cmd_LMTRANSPORT ( char *args )
+static _kernel_oserror *Cmd_LMTRANSPORT ( const char *args )
 {
   /* This is a *Configure/Status command handler */
   char *argv[1];
@@ -566,7 +576,7 @@ static _kernel_oserror *Cmd_LMTRANSPORT ( char *args )
 }
 
 /* --------------------- */
-static _kernel_oserror *Cmd_NBNSIP(char *args)
+static _kernel_oserror *Cmd_NBNSIP( const char *args )
 {
   /* This is a *Configure/Status command handler - it's therefore unusual */
   char *argv[1];
@@ -602,7 +612,7 @@ static _kernel_oserror *Cmd_NBNSIP(char *args)
     result = inet_aton(argv[0],&address);
     if (result)
     {
-      int b0, b1, b2, b3;
+      unsigned long b0, b1, b2, b3;
 
       b0 = (address.s_addr & 0x000000ff);
       b1 = (address.s_addr & 0x0000ff00) >>  8;
@@ -611,10 +621,10 @@ static _kernel_oserror *Cmd_NBNSIP(char *args)
 
       if ( ((b0 != 127) && (b0 <= 223))  &&  ((b3 != 255)) )
       {
-        WrCMOS(NBNSIPCMOS0,b0);
-        WrCMOS(NBNSIPCMOS1,b1);
-        WrCMOS(NBNSIPCMOS2,b2);
-        WrCMOS(NBNSIPCMOS3,b3);
+        WrCMOS(NBNSIPCMOS0,(int) b0);
+        WrCMOS(NBNSIPCMOS1,(int) b1);
+        WrCMOS(NBNSIPCMOS2,(int) b2);
+        WrCMOS(NBNSIPCMOS3,(int) b3);
         return NULL;
       }
     }
@@ -624,7 +634,7 @@ static _kernel_oserror *Cmd_NBNSIP(char *args)
 
 /* --------------------- */
 
-typedef _kernel_oserror * (*CommandFnPtr) ( char *args );
+typedef _kernel_oserror * (*CommandFnPtr) ( const char *args );
 
 #define MAX_CMDS 13
 static CommandFnPtr Cmd_Dispatch[MAX_CMDS] =
@@ -646,7 +656,7 @@ static CommandFnPtr Cmd_Dispatch[MAX_CMDS] =
 
 /* --------------------- */
 
-_kernel_oserror *LM_Command ( char *args, int argc, int cmd_no, void *pw )
+_kernel_oserror *LM_Command ( const char *args, int argc, int cmd_no, void *pw )
 {
   (void) pw;
   (void) argc;
@@ -659,6 +669,7 @@ _kernel_oserror *LM_Command ( char *args, int argc, int cmd_no, void *pw )
 
 /* Service call handler --------------------------------- */
 static void LM_check_driver_status(_kernel_swi_regs *r);
+static void LM_check_internet_status(_kernel_swi_regs *r);
 
 void LM_Service ( int service_number, _kernel_swi_regs *r, void *pw )
 {
@@ -680,7 +691,15 @@ void LM_Service ( int service_number, _kernel_swi_regs *r, void *pw )
       break;
 
     case Service_DCIDriverStatus:
-      LM_check_driver_status(r);
+      if (NB_InitedTransport == NB_NetBEUI_Setup) {
+          LM_check_driver_status(r);
+      }
+      break;
+
+    case Service_InternetStatus:
+      if (NB_InitedTransport == NB_NBIP_Setup) {
+          LM_check_internet_status(r);
+      }
       break;
 
     default:
@@ -693,23 +712,23 @@ void LM_Service ( int service_number, _kernel_swi_regs *r, void *pw )
 _kernel_oserror *LM_Swi( int swi_ofs, _kernel_swi_regs *r, void *pw )
 {
   (void) pw;  /* Not used */
-  switch ( LanMan_SWI_base + swi_ofs )
+  switch ( swi_ofs )
   {
-    case SWI_LanMan_OmniOp:
+    case LanMan_OmniOp - LanMan_00:
       return OmniOp_SWI(r);
 
-    case SWI_LanMan_LogonOp:
+    case LanMan_LogonOp - LanMan_00:
       return Lgn_LogonOp_SWI(r);
 
-    case SWI_LanMan_FreeOp:
+    case LanMan_FreeOp - LanMan_00:
       return Omni_FreeOp_SWI(r);
 
-    case SWI_LanMan_NameOp:
+    case LanMan_NameOp - LanMan_00:
       return Xlt_Error(RPC_NameOp(r->r[0], /* reason code */
                                   (char *)(r->r[1]), /* name in */
                                   (char *)(r->r[2])  /* buffer out */
                                    ));
-    case SWI_LanMan_Transact:
+    case LanMan_Transact - LanMan_00:
       return Xlt_Error(RPC_Transact((char *)(r->r[0]), /* server */
                                     (char *)(r->r[1]), /* share name */
                                     (void *)(r->r[2]) /* params */
@@ -739,17 +758,18 @@ static char *copy_space ( char *dst, char *src, int maxlen )
 
 /* ------------------------------- */
 
-static err_t ProcessCmdLine ( char *line )
+static err_t ProcessCmdLine ( const char *_line )
 {
   char cli[256];
-  char *end = line;
+  char *end;
+  char *line;
 
   /* This code relies on NB_xxx_Setup() only setting variables, not
      allocating anything. Multiple NB_xxx_Setup()'s may be called if
      the user is being perverse */
 
   /* NAS 20/3/97 - RO doesn't pass a 0-terminated string, but a ctrl-terminated one */
-  strncpy(cli, line, 255);
+  strncpy(cli, _line, 255);
   line = end = cli;
   while (*end >= ' ') end++;
   *end = '\0';
@@ -790,11 +810,11 @@ static err_t ProcessCmdLine ( char *line )
          break;
 
       case 'I':
-         NB_NBIP_Setup();
+         LanMan_InitTransport(NB_NBIP_Setup);
          break;
 
       case 'T':
-         NB_NetBEUI_Setup();
+         LanMan_InitTransport(NB_NetBEUI_Setup);
          break;
 
       default:
@@ -899,7 +919,7 @@ void LM_Boot(void)
  *
  */
 
-_kernel_oserror *LM_Initialise(char *cmd_tail, int pod_base, void *pw)
+_kernel_oserror *LM_Initialise(const char *cmd_tail, int pod_base, void *pw)
 {
   _kernel_oserror *err;
   _kernel_swi_regs R;
@@ -1049,7 +1069,7 @@ abort:
 static void LM_check_driver_status(_kernel_swi_regs *r)
 {
         char if_name[16];
-        dci4_dib *dib = (dci4_dib *) (r->r[0]);
+        Dib *dib = (Dib *) (r->r[0]);
 
         sprintf(if_name, "%-.8s%d", dib->dib_name, dib->dib_unit);
 
@@ -1080,6 +1100,27 @@ static void LM_check_driver_status(_kernel_swi_regs *r)
 	                LM_Finalise(0,0,0);
 		}
         }
+}
+
+/* SNB 981029 added this function to verify the contents of the Service_InternetStatus
+ * service call to determine whether we were waiting for the interface to go up so
+ * that we could boot
+ */
+static void LM_check_internet_status(_kernel_swi_regs *r)
+{
+        char *cp = (char *) r->r[3];
+
+	/* Was it the right reason code? */
+	if (r->r[0] != InternetStatus_InterfaceUpDown) return;
+	/* Was it the right interface? */
+	if (stricmp(LM_Vars.drivername, cp) != 0) return;
+	/* was the interface coming up? */
+	if (r->r[2] != 1) return;
+
+	if (LM_Vars.initialised == LMInitState_FullyInited) {
+	        LM_Finalise(0,0,0);
+	}
+	LM_init_phase_2();
 }
 
 
