@@ -448,7 +448,11 @@ static _kernel_oserror *Cmd_LMNAMEMODE ( const char *args )
   if ( GetArgs( args, argv, 1 ) < 1 ||
        sscanf( argv[0], "%d", &tmp) != 1 ||
        tmp < 0 ||
+#ifdef TRACE
+       0
+#else
        tmp > 2
+#endif
      )
     return Xlt_Error (EBADPARAM);
 
@@ -653,6 +657,31 @@ static CommandFnPtr Cmd_Dispatch[MAX_CMDS] =
   Cmd_LMTRANSPORT,
   Cmd_NBNSIP
 };
+
+#ifdef TRACE
+static void chk_a_command(CommandFnPtr ptr, int num)
+{
+        if (Cmd_Dispatch[num] != ptr) {
+           fprintf(stderr, "Command-table error (%d)\n", num);
+        }
+}
+static void chk_commands(void)
+{
+  chk_a_command(Cmd_LANMAN, CMD_LanMan);
+  chk_a_command(Cmd_CONNECT, CMD_LMConnect);
+  chk_a_command(Cmd_DISCONNECT, CMD_LMDisconnect);
+  chk_a_command(Cmd_LOGON, CMD_LMLogon);
+  chk_a_command(Cmd_LMINFO, CMD_LMInfo);
+  chk_a_command(Cmd_LMNAMEMODE, CMD_LMNameMode);
+  chk_a_command(Cmd_LOGOFF, CMD_LMLogoff);
+  chk_a_command(Cmd_LMSERVER, CMD_LMServer);
+  chk_a_command(Cmd_LMPRINTERS, CMD_LMPrinters);
+  chk_a_command(Cmd_LMSTATS, CMD_LMStats);
+  chk_a_command(Cmd_FS, CMD_FS);
+  chk_a_command(Cmd_LMTRANSPORT, CMD_LMTransport);
+  chk_a_command(Cmd_NBNSIP, CMD_LMNameServer);
+}
+#endif
 
 /* --------------------- */
 
@@ -942,7 +971,11 @@ _kernel_oserror *LM_Initialise(const char *cmd_tail, int pod_base, void *pw)
   if (R.r[1] < 0xA2)
     return Xlt_Error(ERISCOSVER);
 
-  if (cmd_tail != NULL)
+#ifdef TRACE
+  chk_commands();
+#endif
+
+if (cmd_tail != NULL)
   {
     err = Xlt_Error(ProcessCmdLine(cmd_tail));
     if (err != NULL)

@@ -230,7 +230,7 @@ EXPORT err_t _NB_FormatName ( nametype_t nt, char *name, NETNAME *res )
 
   for ( i=0; i<15; i++)
   {
-    if ( name[i] < 0x20 ) break;
+    if ( name[i] <= 0x20 ) break;
     if (name[i] == '\xA0') res->b[i] = ' ';
     else res->b[i] = toupper(name[i]);
   }
@@ -248,8 +248,9 @@ EXPORT nametype_t _NB_DecodeName ( NETNAME *pnn, char *buf )
 {
   BYTE *p = pnn->b;
   char *last_nonsp = buf;
+  int i;
 
-  while ( *p >= 0x20 )
+  for (i=0; i<15 && *p >= 0x20; ++i)
     *buf++ = *p++;
 
   *buf = 0;
@@ -1243,7 +1244,7 @@ static NAME_ENTRY *FindRemoteName ( NETNAME *pnn )
   pNE->nn    = *pnn;   /* Copy name */
   pNE->pStatResp = NULL; /* for safety */
 
-  for ( i=3; i>=0; i-- )
+  if (0) for ( i=3; i>=0; i-- )
   {
     if ( i > 0 )  /* Send 3 broadcasts */
     {

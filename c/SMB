@@ -84,12 +84,12 @@
 #include "buflib.h"
 #include "netbios.h"
 #include "smb.h"
-#include "lmvars.h"
-#include "attr.h"   /* For InvalidateDrive */
-#include "xlate.h"  /* For string functions */
 #ifdef LONGNAMES
 #include "Transact.h" /* for transaction structure building helpers */
 #endif
+#include "lmvars.h"
+#include "attr.h"   /* For InvalidateDrive */
+#include "xlate.h"  /* For string functions */
 
 
 /* Definitions ===================================================== */
@@ -239,7 +239,6 @@ typedef struct
 #define ERRCMD 0xFF
 
 
-#define SEARCH_ST_SIZE  21
 #define SEARCH_TOT_SIZE 43
 #define SEARCH_COUNT 10
 
@@ -317,7 +316,6 @@ struct ActiveShare
   char    sharename[SHARENAME_LEN];  /* upper case */
 };
 
-typedef struct ActiveShare  *hSHARE;
 
 #define GetFid(FH) ((FH) & 0xFFFF)
 #define MakeFH(pS,FID) ((pS)->FH_base | (FID & 0xFFFF) )
@@ -1843,7 +1841,12 @@ static err_t SMB_GetAttribsX2 (hSHARE hS, char *filename, DOS_ATTRIBS *pAttr )
       fnbuffer[4] = '\0';
       Transact_init(&tp, 6 * 2);           /* will accept 6 WORD return params */
       Transact_addsetupword(&tp, TRANSACT2_FINDFIRST);
+    if (LM_Vars.namemode & 4) {
+      Transact_addword(&tp, ATTR_DIR | ATTR_SYS | ATTR_HID);     /* findfirst_Attribute */
+    }
+    else {
       Transact_addword(&tp, ATTR_DIR);     /* findfirst_Attribute */
+    }
       Transact_addword(&tp, 1);            /* findfirst_SearchCount */
       Transact_addword(&tp, 0);            /* findfirst_flags */
       Transact_addword(&tp, 1);            /* Search level  */
@@ -2094,13 +2097,6 @@ err_t SMB_GetFreeSpace ( char lettr, struct disk_size_response *pDSR  )
 
 /* ------------------------------- */
 
-/* State which is held from one call to the next of
-   SMB_EnumerateDir */
-
-static bool NextSearchOK;
-static BYTE SearchState[SEARCH_ST_SIZE];
-static hSHARE SearchDrive;
-
 #ifdef LONGNAMES
 
 /* Note.
@@ -2123,12 +2119,9 @@ static err_t SMB_AbandonFind2( hSHARE hS, WORD dir_handle )
 }
 
 static err_t SMB_ReadDirEntriesX2 ( hSHARE hS, char *path, int count,
-                               ENUM_DIR_FN dirfn, void *private )
+                               ENUM_DIR_FN dirfn, void *private,
+                               struct Transact2_SearchContext *con )
 {
-  static struct TransactParms tp;
-  static DWORD resume_key;
-  static WORD  dir_handle;
-  static char  last_filename[DOS_NAME_LEN];
   char *ptr_last_filename;
   err_t res;
   BYTE *p;
@@ -2140,16 +2133,16 @@ static err_t SMB_ReadDirEntriesX2 ( hSHARE hS, char *path, int count,
   const int next_flags  = /*ffirst_CLOSE_IF_DONE |*/ ffirst_RETURN_KEYS;// | fnext_CONTINUE;
   int flags;
 
-  if (path != NULL && NextSearchOK == true || count < 0) {
+  if (path != NULL && con->t1.NextSearchOK == true || count < 0) {
      /* We need to abandon the current search attached to dir_handle.
       * Ignore errors.
       */
      debug3("SMB_ReadDirEntriesX2 -> path (%p) NextSearchOK (%d) count (%d)\n",
-       path, NextSearchOK, count);
-     (void) SMB_AbandonFind2( hS, dir_handle );
+       path, con->t1.NextSearchOK, count);
+     (void) SMB_AbandonFind2( hS, con->dir_handle );
   }
 
-  NextSearchOK = false;
+  con->t1. NextSearchOK = false;
   if (count < 0) return ENOMOREFILES;
 
   //count = min (count, 10);
@@ -2159,38 +2152,43 @@ static err_t SMB_ReadDirEntriesX2 ( hSHARE hS, char *path, int count,
     /* Initial search - note we accept SIX return parameters - contrary to
      * Microsoft's own document - because it doesn't work if you only pass 5. Grr.
      */
-    resume_key = 0;
+    con->resume_key = 0;
     flags = first_flags;
-    Transact_init(&tp, 6 * 2);           /* will accept 6 WORD return params */
-    Transact_addsetupword(&tp, TRANSACT2_FINDFIRST);
-    Transact_addword(&tp, ATTR_DIR);     /* findfirst_Attribute */
-    Transact_addword(&tp, count);        /* findfirst_SearchCount */
-    Transact_addword(&tp, first_flags);  /* findfirst_flags */
-    Transact_addword(&tp, 1);            /* Search level  */
-    Transact_addlong(&tp, 0L);           /* reserved, MBZ */
-    Transact_addstring(&tp, path+2);     /* findfirst_FileName[] */
-    res = SMB_Transact2(hS, &tp);
+    Transact_init(&con->tp, 6 * 2);           /* will accept 6 WORD return params */
+    Transact_addsetupword(&con->tp, TRANSACT2_FINDFIRST);
+    if (LM_Vars.namemode & 4) {
+      Transact_addword(&con->tp, ATTR_DIR | ATTR_SYS | ATTR_HID);     /* findfirst_Attribute */
+    }
+    else {
+      Transact_addword(&con->tp, ATTR_DIR);   /* findfirst_Attribute */
+    }
+    Transact_addword(&con->tp, count);        /* findfirst_SearchCount */
+    Transact_addword(&con->tp, first_flags);  /* findfirst_flags */
+    Transact_addword(&con->tp, 1);            /* Search level  */
+    Transact_addlong(&con->tp, 0L);           /* reserved, MBZ */
+    Transact_addstring(&con->tp, path+2);     /* findfirst_FileName[] */
+    res = SMB_Transact2(hS, &con->tp);
     if (res != OK)
       return res;
-    p = tp.parms_out_buf;
-    dir_handle = Transact_getword(p); p += 2;
-    debug1("SID = 0x%04hx\n", dir_handle);
+    p = con->tp.parms_out_buf;
+    con->dir_handle = Transact_getword(p); p += 2;
+    debug1("SID = 0x%04hx\n", con->dir_handle);
   }
   else {
     /* continuation */
     flags = next_flags;
-    Transact_init(&tp, 4 * 2);           /* will accept 4 WORD return params */
-    Transact_addsetupword(&tp, TRANSACT2_FINDNEXT);
-    Transact_addword(&tp, dir_handle);   /* findnext_DirHandle */
-    Transact_addword(&tp, count);        /* findnext_SearchCount */
-    Transact_addword(&tp, 1);            /* Search level  */
-    Transact_addlong(&tp, resume_key);   /* Resume key from previous */
-    Transact_addword(&tp, next_flags);   /* findnext_flags */
-    Transact_addstring(&tp, last_filename); /* resumption filename */
-    res = SMB_Transact2(hS, &tp);
+    Transact_init(&con->tp, 4 * 2);           /* will accept 4 WORD return params */
+    Transact_addsetupword(&con->tp, TRANSACT2_FINDNEXT);
+    Transact_addword(&con->tp, con->dir_handle);   /* findnext_DirHandle */
+    Transact_addword(&con->tp, count);        /* findnext_SearchCount */
+    Transact_addword(&con->tp, 1);            /* Search level  */
+    Transact_addlong(&con->tp, con->resume_key);   /* Resume key from previous */
+    Transact_addword(&con->tp, next_flags);   /* findnext_flags */
+    Transact_addstring(&con->tp, con->last_filename); /* resumption filename */
+    res = SMB_Transact2(hS, &con->tp);
     if (res != OK)
       return res;
-    p = tp.parms_out_buf;
+    p = con->tp.parms_out_buf;
   }
   /* Remainder of response handling is common to both sub-commands */
   n_read = Transact_getword(p); p += 2;
@@ -2201,14 +2199,14 @@ static err_t SMB_ReadDirEntriesX2 ( hSHARE hS, char *path, int count,
     ptr_last_filename = NULL;
   }
   else {
-    ptr_last_filename = (char *) tp.data_out_buf + lastname;
+    ptr_last_filename = (char *) con->tp.data_out_buf + lastname;
   }
 
   if (eos) {
           debug0(">> Server said it was the end of the search operation\n");
   }
 
-  p = tp.data_out_buf;
+  p = con->tp.data_out_buf;
   /* At this point, p is pointing to the start of the returned data
    * buffer, n_read contains the number of files known to be in the
    * return buffer, eos is non-zero if the search is completed.
@@ -2238,20 +2236,20 @@ static err_t SMB_ReadDirEntriesX2 ( hSHARE hS, char *path, int count,
        //NextSearchOK = eos ? false : true;
        debug0("Bugger.  Looks like client ran out of space (or could be name xlate code)\n");
        if (eos) {
-         (void) SMB_AbandonFind2( hS, dir_handle );
+         (void) SMB_AbandonFind2( hS, con->dir_handle );
        }
        else {
          int j;
-         NextSearchOK = true;
+         con->t1.NextSearchOK = true;
          for (j=i; j<n_read; ++j) dirfn(p, 1, private);
        }
        return EOUTOFMEM;
     }
     else {
-       resume_key = next_resume_key;
+       con->resume_key = next_resume_key;
        ptr_last_filename = (char *) p + 23;
-       (void) strncpy(last_filename, ptr_last_filename?ptr_last_filename:"",
-         sizeof(last_filename));
+       (void) strncpy(con->last_filename, ptr_last_filename?ptr_last_filename:"",
+         sizeof(con->last_filename));
     }
     p += 23 + length + 1;
     if ( i == count )  /* By implication, if n_read >= count */
@@ -2259,48 +2257,52 @@ static err_t SMB_ReadDirEntriesX2 ( hSHARE hS, char *path, int count,
       debug3("i = %3d; count = %3d; n_read = %3d\n", i, count, n_read);
       debug0("OK - there are more to come later; ");
       if (flags & ffirst_RETURN_KEYS) {
-        debug1("Resume key is 0x%08x; ", resume_key);
+        debug1("Resume key is 0x%08x; ", con->resume_key);
       }
-      debug1("Next filename is `%s'\n", last_filename);
-      NextSearchOK = true;
+      debug1("Next filename is `%s'\n", con->last_filename);
+      con->t1.NextSearchOK = true;
     }
   }
 
   if (eos) {
           debug0(">> Server said it was the end of the search operation\n");
-          NextSearchOK = false;
+          con->t1.NextSearchOK = false;
   }
 
-  return NextSearchOK ? OK : ENOMOREFILES;
+  return con->t1.NextSearchOK ? OK : ENOMOREFILES;
 }
 #endif
 
 err_t SMB_ReadDirEntries ( char *path, int count,
-                               ENUM_DIR_FN dirfn, void *private )
+                               ENUM_DIR_FN dirfn, void *private, Transact_SearchContext *conp )
 {
   err_t res;
   int i, n_read;
   BYTE *entry;
   BUFCHAIN pB, pBres;
+  static Transact_SearchContext rde_context;
+  struct Transact1_SearchContext *con;
 
+  con = (conp == NULL) ? &rde_context.t1 : &conp->t1;
   /* Start or continue search? */
 
   if ( path != NULL ) /* Start search */
   {
-    SearchDrive = GetShare(path, &res);
-    if ( SearchDrive == NULL )
+    con->SearchDrive = GetShare(path, &res);
+    if ( con->SearchDrive == NULL )
       return res;
   }
   else
   {
-    if ( !NextSearchOK || SearchDrive == NULL )
+    if ( !con->NextSearchOK || con->SearchDrive == NULL )
       return ENOMOREFILES;
   }
 
 #ifdef LONGNAMES
-  if (SearchDrive->t2flags & T2FLAGS_LONGNAMES)
+  if (con->SearchDrive->t2flags & T2FLAGS_LONGNAMES)
   {
-     return SMB_ReadDirEntriesX2(SearchDrive, path, count, dirfn, private);
+     struct Transact2_SearchContext *const t2sc = (conp == NULL) ? &rde_context.t2 : &conp->t2;
+     return SMB_ReadDirEntriesX2(con->SearchDrive, path, count, dirfn, private, t2sc);
   }
 #endif
 
@@ -2319,7 +2321,7 @@ err_t SMB_ReadDirEntries ( char *path, int count,
   }
   else                /* Continue search */
   {
-    pB = MkDataBlock (NULL, DATA_VARBLK, SearchState,
+    pB = MkDataBlock (NULL, DATA_VARBLK, con->SearchState,
                                       SEARCH_ST_SIZE, false);
     if ( pB != NULL)
       pB = MkDataString( pB, DATA_ASCII, "" );
@@ -2332,9 +2334,9 @@ err_t SMB_ReadDirEntries ( char *path, int count,
 
   SMB_TxWords[0] = count;
   SMB_TxWords[1] = ATTR_DIR /* | ATTR_SYS | ATTR_HID */;
-  NextSearchOK = false;
+  con->NextSearchOK = false;
 
-  res = Do_SMB ( SearchDrive, SMBsearch, 2, pB, &pBres );
+  res = Do_SMB ( con->SearchDrive, SMBsearch, 2, pB, &pBres );
 
   if ( res != OK )
     return res;
@@ -2353,14 +2355,14 @@ err_t SMB_ReadDirEntries ( char *path, int count,
     dirfn ( entry+SEARCH_ST_SIZE, 0, private );
     if ( i == count )  /* By implication, if n_read >= count */
     {
-      NextSearchOK = true;
-      memcpy ( SearchState, entry, SEARCH_ST_SIZE );
+      con->NextSearchOK = true;
+      memcpy ( con->SearchState, entry, SEARCH_ST_SIZE );
     }
     entry += SEARCH_TOT_SIZE;
   }
 
   /* Return OK, or 'no more' */
-  return NextSearchOK ? OK : ENOMOREFILES;
+  return con->NextSearchOK ? OK : ENOMOREFILES;
 }
 
 /* Public file read/write operations ============================= */

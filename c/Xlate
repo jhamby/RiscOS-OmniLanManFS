@@ -38,10 +38,42 @@
 
 
 #ifdef LONGNAMES
-//#include "NFSConsts.h"
 #define FileChar_TypedNamePrefix        ','
 #define FileString_DeadFile             "xxx"
 #define FileString_UntypedFile          "lxa"
+
+/* Magic value used to indicate an incomplete file - used by the Filer,
+ * for example, when writing a new file
+ */
+static const int deaddead = 0xDEADDEAD;
+
+/* For the moment, untyped files have these invented load/exec addresses.
+ * They ensure that if such a file is *Load'ed or *Run'ed, then a data
+ * abort will occur
+ */
+static const int untyped_load = 0x03800000;
+static const int untyped_exec = 0x03800000;
+
+/* Macro returns non-zero if the specifiec load addressis indicative of
+ * a filetyped object.   Rather than checking for the top 12 bits being
+ * set, it's much quicker to arithmetic shift it right 20 bits and test
+ * for -1.  (Norcroft generates:  MVN rn, #0: TEQ rn, ra, ASR #20)
+ */
+#define IS_FILETYPED(load_addr) ((((signed int)(load_addr)) >> 20) == -1)
+
+/* Extracts the filetype from a load address.  Assumes that IS_FILETYPED
+ * would return non-zero.  In isolation, Norcroft generates:
+ * MOV ra, ra, LSL #12: MOV ra, ra, LSR #20.
+ */
+#define GET_FILETYPE(load_addr) ((((unsigned int)(load_addr)) << 12) >> 20)
+
+/* Encodes a filetype into a load address - Norcroft compiler makes a
+ * nice job of this macro (result in load): ORR rn, load, #0xf0000000
+ * ORR rn, rn, #0x0FF00000: MOV load,load,LSL #12:
+ * EOR load, type, load LSR #20: EOR load,rn,load LSL #8
+ */
+#define ENCODE_FILETYPE(load,type) \
+	(((load)|0xFFF00000)^((GET_FILETYPE(load)^(type))<<8))
 #endif
 
 
@@ -609,7 +641,7 @@ static const char lanmanfs_lookup_table[257]=
 
 static const char lanmanfs_inverse_lookup_table[257]=
      "________________________________"
-     "\xa0!\"?<>+'()*+,-\\.0123456789:;<=>#"
+     "\xa0!\"?$%+'()*+,-\\.0123456789:;<=>#"
      "=ABCDEFGHIJKLMNOPQRSTUVWXYZ[.],_"
      "`abcdefghijklmnopqrstuvwxyz{|}~_"
      "€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ"
@@ -619,19 +651,25 @@ static const char lanmanfs_inverse_lookup_table[257]=
 
 
 /* These two structures MUST be kept in step in order to allow the
- * wildcard resolution code function correctly
+ * wildcard resolution code function correctly.
  */
 static const char lanmanfs_contentious_characters[]=
      "+=><,\xa0";
 static const char lanmanfs_contentious_pairing[]=
      "&@%$^\x20";
 
+/* Translate DOS names to RISC OS names using the translation table
+ *
+ * This routine translates the given DOS filename into the RISC OS filename,
+ * stripping the file extension if there is one and setting up the pRA
+ * structure with the type details of the file.
+ */
 static void Xlt_NameDOStoROX2 ( char *dst, char *src, RISCOS_ATTRIBS *pRA )
 {
   int i;
   char *odst = dst;
 
-  for ( i=0; i<255; i++ )      /* Length limit is 255 chars */
+  for ( i=0; i<(DOS_NAME_LEN-1); i++ )      /* Length limit is 255 chars */
   {
     int c = src[i] & 0xFF;
     if (c == 0) break; /* Found the terminator */
@@ -649,50 +687,69 @@ static void Xlt_NameDOStoROX2 ( char *dst, char *src, RISCOS_ATTRIBS *pRA )
   }
 }
 
-/* This is slightly more complicated now by the ,xxx naming scheme.
+/* This function copies the string src to dst.  Once it gets past the
+ * level'th character, it maps each character through the RISC OS->DOS
+ * character conversion table.
  *
- * This function returns ENOWILDCARD if the file exists remotely and
- * has exactly the same name as was requested.  This implies that it
- * was a text file or a directory.
- *
- * If it returns OK, then it means that the file exists but requires
- * a wildcard lookup.
- *
- * If it returns ENOTPRESENT, then it means that the file definitely
- * is not there.
+ * This means that partially converted filenames can be copied verbatim
+ * and the not-yet-done portions translated as required.
  */
-static int Xlt_CopyViaInverseTable( char *dst, const char *src, int blat )
+static void Xlt_CopyViaInverseTable( char *dst, const char *src, int level )
 {
-  int wild_count = 0, c, i;
+  int i;
 
   for ( i=0; i<(DOS_NAME_LEN-1); i++ )
   {
-    c = src[i] & 0xFF;
+    int c = src[i] & 0xFF;
     if (c == 0) break;
-    if (strchr(lanmanfs_contentious_characters, c)) {
-      ++wild_count;
-      if (blat) {
-        dst[i] = '?';
-        continue;
-      }
+    if (i < level) {
+      dst[i] = c;
     }
-    dst[i] = lanmanfs_inverse_lookup_table[c];
+    else {
+      dst[i] = lanmanfs_inverse_lookup_table[c];
+    }
   }
   dst[i] = 0;
-  return wild_count;
 }
 
+/* Temporary state data structure for the filename mangling */
 typedef struct {
         char *dstcpy;
         char dstcpybuf[DOS_NAME_LEN + 4];
         char matchbuf[DOS_NAME_LEN + 4];
 } Xlt_NXCX2_Data;
 
+
+/* Xlt_ContentiousCharCheck
+ *
+ * Checks contentious characters. Returns the actual remote char if
+ * the chars are not equal but match under the contentious char table.
+ * Returns '\0' if no match is found.
+ */
+static char Xlt_ContentiousCharCheck(char e, char d)
+{
+   int i;
+
+   for (i=0; lanmanfs_contentious_characters[i]; ++i) {
+     if ((e == lanmanfs_contentious_characters[i] ||
+          e == lanmanfs_contentious_pairing[i]) &&
+         (d == lanmanfs_contentious_characters[i] ||
+          d == lanmanfs_contentious_pairing[i])) {
+            return e;
+          }
+   }
+
+   return '\0';
+}
+
 /* An unusual routine.  The SMB_ReadDirectoryEntriesX2 routine calls this
  * function back in order to process each directory entry as it is
  * discovered whilst we are searching for filename matches.  In order to
  * get that routine to stop when we have found a match, we return it a
- * value of EOUTOFMEM.  If we want it to continue, we return OK.
+ * value of EOUTOFMEM.  If we want it to continue, we return OK.  The
+ * private handle (_dst) is actually a pointer to the state structure
+ * and that structure is updated with the real filename once a match
+ * has been found.  The format parameter should always be 1.
  */
 static err_t Xlt_NameXlateCallbackX2 ( BYTE *entry, int format, void *_dst )
 {
@@ -728,27 +785,28 @@ static err_t Xlt_NameXlateCallbackX2 ( BYTE *entry, int format, void *_dst )
         }
       }
       else {
-        int i;
-
-        for (i=0; lanmanfs_contentious_characters[i]; ++i) {
-          if ((e == lanmanfs_contentious_characters[i] ||
-               e == lanmanfs_contentious_pairing[i]) &&
-              (d == lanmanfs_contentious_characters[i] ||
-               d == lanmanfs_contentious_pairing[i])) {
-            break; /* OK! */
-          }
+        if (!Xlt_ContentiousCharCheck(e, d)) {
+          /* No match */
+          return OK;
         }
-        if (lanmanfs_contentious_characters[i] == 0) return OK;
       }
     }
 
     if (res == EOUTOFMEM) {
+      /* Update stored leafname */
       strcpy(dst->dstcpy, (char *) entry+23);
     }
     return res;
 }
 
-static err_t Xlt_NameROtoDOSX2 ( char *dst, char *src )
+/* Map RISC OS names onto DOS names.  Complicated by the need to
+ * resolve the duplicate mapped characters.  All lookups invoke a
+ * directory search at the remote end, looking for the actual object
+ * name.  If any of the path components have nasty characters in them,
+ * then sub-searches are performed to resolve those too.  Only a single
+ * level of recursion is required (and supported).
+ */
+static err_t Xlt_NameROtoDOSX2_sub ( char *dst, char *src, int level )
 {
   static Xlt_NXCX2_Data private;
   char *inptr;
@@ -756,10 +814,16 @@ static err_t Xlt_NameROtoDOSX2 ( char *dst, char *src )
 
   private.matchbuf[0] = dst[0];
   private.matchbuf[1] = dst[1];
-  Xlt_CopyViaInverseTable(private.matchbuf + 2, src, 0);
+  Xlt_CopyViaInverseTable(private.matchbuf + 2, src, level);
   debug0("\n\n");
   debug1("Xlt_NameROtoDOSX2: `%s'\n", src);
   debug1("Xlt_CopyViaInverseTable -> `%s'\n", private.matchbuf);
+
+  /* Construct the search pathname buffer, by taking the parent directory
+   * and ensuring that the name ends \*
+   * private.dstcpy must point at the * character so that the callback
+   * function can write the matched target name straight in
+   */
   strcpy(private.dstcpybuf, private.matchbuf);
   private.dstcpy = strrchr(private.dstcpybuf, '\\');
   if (private.dstcpy) {
@@ -773,11 +837,68 @@ static err_t Xlt_NameROtoDOSX2 ( char *dst, char *src )
   debug1("Xlt_NameROtoDOSX2 initiates a dir search of `%s'\n",
     private.dstcpybuf);
 
+  if (level == 0)
+  for (inptr = private.dstcpybuf + 2 + level; inptr != private.dstcpy; ++inptr) {
+    if (Xlt_ContentiousCharCheck(*inptr, *inptr)) {
+      /* We have a problem - there are contentious characters in the
+       * path leading to the actual object we are going to seek!
+       * We now have to mess about doing sub-searching for the required
+       * contentious directory names, remembering to patch back the
+       * private.matchbuf with the matched name so that if any search
+       * component fails (eg. the top-level one when the object does
+       * not exist (consider *Cdir or *Create)) does remember the path
+       * did exist.
+       */
+      static Xlt_NXCX2_Data sub_search;
+      static char srccpy[DOS_NAME_LEN];
+      char *ptr, preserved, *okptr;
+      size_t len;
+
+      /* Preserve existing state whilst sub-search is performed */
+      sub_search = private;
+
+      /* Duplicate source string and truncate it appropriately for
+       * the sub-search target
+       */
+      strcpy(srccpy, private.matchbuf + 2);
+      okptr = srccpy + (inptr - (private.dstcpybuf + 2));
+      while (okptr != srccpy && *okptr != '\\') --okptr;
+      ptr = srccpy + (inptr - (private.dstcpybuf + 2));
+      while (*ptr != '\0' && *ptr != '\\') ++ptr;
+      preserved = ptr[0];
+      ptr[0] = '\0';
+      /* Search for the name.  Don't worry about failures, dst will be
+       * safe to use whatever the result
+       */
+      Xlt_NameROtoDOSX2_sub(dst, srccpy, okptr - srccpy + 1);
+      len = strlen(dst);
+      ptr[0] = preserved;
+      /* Restore state, update matchbuf (answer on fail), and dstcpybuf
+       * (current copy buffer).
+       */
+      private = sub_search;
+      memcpy(private.dstcpybuf, dst, len);
+      memcpy(private.matchbuf, dst, len);
+      /* Skip to next component - we've already tried to resolve this
+       * one and, with success or failure, we already have the best we
+       * can do for this component
+       */
+      inptr = private.dstcpybuf + len;
+    }
+  }
+
+  debug1("Xlt_NameROtoDOSX2 initiates a dir search of `%s' (post-mangle)\n",
+    private.dstcpybuf);
+
+  /* Repeatedly search the directory until we find a match, or there are
+   * no more entries to be read back
+   */
   for (status = OK, inptr = private.dstcpybuf; status == OK; inptr = NULL) {
-    status = SMB_ReadDirEntries(inptr, 512, Xlt_NameXlateCallbackX2,
-      &private);
+    status = SMB_ReadDirEntries(inptr, 32, Xlt_NameXlateCallbackX2,
+      &private, NULL);
     switch (status) {
       case OK:
+        /* More entries to read, and no match found yet */
         break;
       case EOUTOFMEM:
         /* Found it */
@@ -785,7 +906,9 @@ static err_t Xlt_NameROtoDOSX2 ( char *dst, char *src )
         debug1("\n**RIGHT.  Got a match: `%s'\n", dst);
         break;
       default:
-        /* Definitely didn't find it - revert to original filename */
+        /* Definitely didn't find it - revert to original filename
+         * or at least filename with nasties resolved as far as possible
+         */
         strcpy(dst, private.matchbuf);
         debug1("\n**WRONG.  Not got a match. Reverting to `%s'\n", dst);
         break;
@@ -794,6 +917,15 @@ static err_t Xlt_NameROtoDOSX2 ( char *dst, char *src )
 
   return OK;
 }
+
+/* Kicks off the DOS to RISC OS name conversion process - setting up the
+ * number of already-translated characters as zero.
+ */
+static err_t Xlt_NameROtoDOSX2 ( char *dst, char *src )
+{
+        return Xlt_NameROtoDOSX2_sub(dst, src, 0);
+}
+
 #endif
 
 /* --------------------------- */
@@ -849,6 +981,9 @@ err_t Xlt_ConvertPath ( char *name_in, char *name_out )
   else if ( name_in[1] == '.' )
   {
 #ifdef LONGNAMES
+    /* We use a different system for long filename shares.  Call
+     * the long name resolution routine if necessary
+     */
     if (SMB_IsLongNameFS( name_out )) {
       return ( Xlt_NameROtoDOSX2 ( name_out, name_in+1 ) );
     }
@@ -976,8 +1111,7 @@ err_t Xlt_ExpandSearchEntryX2 ( BYTE *entry, char *path_base,
     if ( ra_out != NULL )
     {
       Xlt_CnvDOStoRO ( &da, ra_out, CNV_DATETIME+CNV_ATTRIBS );
-      ra_out->loadaddr &= ~0xFFF00;
-      ra_out->loadaddr |= (ra_name.loadaddr & (0xFFF00));
+      ra_out->loadaddr ^= ((ra_name.loadaddr ^ ra_out->loadaddr) & (0xFFF00));
     }
   }
 
@@ -1025,31 +1159,54 @@ _kernel_oserror *Xlt_Error ( err_t err )
 /* ------------------------------- */
 
 #ifdef LONGNAMES
+/* Xlt_SplitLeafname2
+ *
+ * This routine examines the supplied leafname/pathname and looks to
+ * see if it has a type suffix.  If it does, then the type suffix is
+ * decoded and the RISCOS_ATTRIBS structure is updated to hold the
+ * load/exec address data, a pointer to the type suffix separator (the
+ * comma) is stored in *terminator and the function returns OK.  The
+ * caller can strip the suffix by zeroing the byte pointed to by
+ * *terminator.  If there was no type suffix, ENOTPRESENT is returned
+ * and NULL is stored in *terminator.
+ *
+ */
 err_t Xlt_SplitLeafnameX2 ( char *leafname, RISCOS_ATTRIBS *pRA,
   char **terminator)
 {
   int type, len;
   char *term;
   err_t res = ENOTPRESENT;
-  const int fff00 = 0xFFF00;
 
-  pRA->loadaddr = pRA->loadaddr | (fff00) | 0xFFF00000;
   *terminator = NULL;
   if (leafname == NULL) {
+    /* Oh dear - don't understand this - just claim it's text */
+    pRA->loadaddr |= 0xFFFFFF00;
     return res;
   }
   debug1("Xlt_SplitLeafnameX2(\"%s\",....)\n", leafname);
   term = strchr(leafname, '\0');
-  if ((term - leafname) < 5) return res;
+  if ((term - leafname) < 5) {
+    /* Name too short?  Must be text. */
+    pRA->loadaddr |= 0xFFFFFF00;
+    return res;
+  }
   leafname = term - 4;
-  if (leafname[0] != FileChar_TypedNamePrefix) return res;
+  if (leafname[0] != FileChar_TypedNamePrefix) {
+    /* Not an extension?  Must be text */
+    pRA->loadaddr |= 0xFFFFFF00;
+    return res;
+  }
   if (stricmp(leafname+1, FileString_UntypedFile) == 0) {
-    pRA->loadaddr = pRA->execaddr = 0x03800000;
+    debug0("File is untyped (,lxa)\n");
+    pRA->loadaddr = untyped_load;
+    pRA->execaddr = untyped_exec;
     *terminator = leafname;
     res = OK;
   }
   else if (stricmp(leafname+1, FileString_DeadFile) == 0) {
-    pRA->loadaddr = pRA->execaddr = 0xDEADDEAD;
+    pRA->loadaddr = pRA->execaddr = deaddead;
+    debug0("File is DEADDEAD\n");
     *terminator = leafname;
     res = OK;
   }
@@ -1061,7 +1218,7 @@ err_t Xlt_SplitLeafnameX2 ( char *leafname, RISCOS_ATTRIBS *pRA,
    * string.  Therefore, provided that len was 3, then we have
    * consumed three hex digits.
    */
-    pRA->loadaddr = pRA->loadaddr ^ (((~type) << 8) & fff00);
+    pRA->loadaddr = ENCODE_FILETYPE(pRA->loadaddr, type);
     *terminator = leafname;
     debug3("Filetype is %#03x; load/exec=%#08x %#08x\n", type,
     	pRA->loadaddr, pRA->execaddr);
@@ -1104,6 +1261,9 @@ err_t Xlt_CnvRenameX2 ( char *src, char *dst )
 /* ------------------------------- */
 
 #ifdef LONGNAMES
+/* Adds the type suffix for a RISC OS filename.  The type is extracted
+ * from the passed load address.
+ */
 int Xlt_AddROType ( char *leafname, uint loadaddr )
 {
    RISCOS_ATTRIBS RA;
@@ -1111,16 +1271,16 @@ int Xlt_AddROType ( char *leafname, uint loadaddr )
    char typebuf[8];
 
    typebuf[0] = FileChar_TypedNamePrefix;
-   if (loadaddr == 0xDEADDEAD) {
+   if (loadaddr == deaddead) {
      strcpy(typebuf+1, FileString_DeadFile);
    }
-   else if ((loadaddr & 0xFFF00000) != 0xFFF00000) {
+   else if (!IS_FILETYPED(loadaddr)) {
      strcpy(typebuf+1, FileString_UntypedFile);
    }
    else {
-     int type = (loadaddr << 12) >> 20;
+     const int type = GET_FILETYPE(loadaddr);
      if (type == 0xFFF) *typebuf = '\0';
-     else sprintf(typebuf+1, "%03x", (loadaddr << 12) >> 20);
+     else sprintf(typebuf+1, "%03x", type);
    }
 
    if (Xlt_SplitLeafnameX2 ( leafname, &RA, &terminator) == OK) {

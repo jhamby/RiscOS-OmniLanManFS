@@ -20,6 +20,26 @@
 *
 */
 
+#define SEARCH_ST_SIZE  21
+
+typedef struct ActiveShare  *hSHARE;
+
+union Transact_SearchContext {
+  struct Transact1_SearchContext {
+    bool NextSearchOK;
+    BYTE SearchState[SEARCH_ST_SIZE];
+    hSHARE SearchDrive;
+  } t1;
+  struct Transact2_SearchContext {
+    struct Transact1_SearchContext t1;
+    struct TransactParms tp;
+    DWORD resume_key;
+    WORD dir_handle;
+    char last_filename[DOS_NAME_LEN];
+  } t2;
+};
+
+
 extern void Transact_addword(struct TransactParms *TP, int value);
 extern void Transact_addlong(struct TransactParms *TP, long value);
 extern void Transact_addstring(struct TransactParms *TP, const char *str);

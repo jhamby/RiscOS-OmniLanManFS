@@ -47,6 +47,9 @@ struct disk_size_response
 #define MAX_SETUPWORDS	(4)
 #endif
 
+typedef union Transact_SearchContext Transact_SearchContext;
+
+
 struct TransactParms
 {
   int   parms_in_len;
@@ -95,7 +98,7 @@ extern err_t SMB_Rename ( char *oldpath, char *newpath );
 extern err_t SMB_GetAttribs ( char *filename, DOS_ATTRIBS *pAttr );
 extern err_t SMB_SetAttribs ( char *filename, DOS_ATTRIBS *pAttr );
 extern err_t SMB_ReadDirEntries ( char *path, int max_count,
-               ENUM_DIR_FN dirfn, void *private );
+               ENUM_DIR_FN dirfn, void *private, Transact_SearchContext *);
 extern err_t SMB_GetFreeSpace ( char lettr, struct disk_size_response
                                               * pDSR );
 

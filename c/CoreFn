@@ -34,6 +34,7 @@
 #include "xlate.h"
 #include "attr.h"
 #include "smb.h"
+#include "Transact.h"
 
 
 /* Some globals ================================== */
@@ -203,6 +204,7 @@ static err_t Func_ReadDir ( int reason, char *path_name, char *buffer,
        int n_names, int dir_offset, int buflen, int *pOutNread,
        int *pOutNextOffset )
 {
+  static Transact_SearchContext scon;
   int tmp;
   err_t res;
 
@@ -272,7 +274,7 @@ static err_t Func_ReadDir ( int reason, char *path_name, char *buffer,
     strcpy ( RD_CurrentPath, DOSnamebuf);
     RD_CurOffset = 0;
     res = SMB_ReadDirEntries ( DOSnamebuf, RD_ReqCount+RD_ReqOffset,
-                                      Dir_CallbackFn, NULL );
+                                      Dir_CallbackFn, NULL, &scon );
   }
   else
     res = OK;
@@ -284,7 +286,7 @@ static err_t Func_ReadDir ( int reason, char *path_name, char *buffer,
   {
     debug0("\n>> Continue search\n");
     res = SMB_ReadDirEntries ( NULL, RD_ReqCount+RD_ReqOffset-RD_CurOffset,
-                                      Dir_CallbackFn, NULL );
+                                      Dir_CallbackFn, NULL, &scon );
   }
 
   /* Process results */
