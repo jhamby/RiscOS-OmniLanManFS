@@ -57,7 +57,7 @@ DBG_OBJS  = ${NONCOBJS} ${MAINOBJS:%.o=od.%}
 
 OBJSI     = ${NONCOBJS} ${MAINOBJS:%.o=i.%}
 
-OBJSINST  = ${NONCOBJS} ${MAINOBJS:%.o:inst.%}
+OBJSINST  = ${NONCOBJS} ${MAINOBJS:%.o=inst.%}
 
 LanMan_MH.h: LanMan_MH.o
 	${CMHG} ${CMHGFLAGS} cmhg.$* -d $@
