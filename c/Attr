@@ -39,6 +39,7 @@
 #include "smb.h"
 #include "xlate.h"
 #include "omni.h"
+#include "LanMan.h"
 
 /* "Default" filetype logic ------------------------------------- */
 
@@ -86,8 +87,8 @@ static void GetDefaultType ( char *leafname, RISCOS_ATTRIBS *ra )
   leafname = strchr(leafname, '.');
   if ( leafname == NULL )  /* No extension */
      {
-     debug1("No suffix,assuming DOS filetype for '%s'\n", leafname );
-     ra->loadaddr = FileType_MSDOS << 8;
+     debug1("No suffix,assuming Text filetype for '%s'\n", leafname );
+     ra->loadaddr = Default_FileType << 8;
      return;
      }
 

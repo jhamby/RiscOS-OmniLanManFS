@@ -30,12 +30,12 @@
 
 #include "kernel.h"
 #include "stdtypes.h"
-#include "Global/FileTypes.h"
 #include "swis.h"
 
 #include "Xlate.h"
 #include "attr.h"
 #include "omni.h"
+#include "LanMan.h"
 #include "lmvars.h"
 #include "SMB.h"
 #include "NameCache.h"
@@ -245,7 +245,7 @@ void Xlt_CnvDOStoRO ( DOS_ATTRIBS *pDA, RISCOS_ATTRIBS *pRA, int flags )
     /* Total = (thi << 16)+tlo; */
 
     pRA->loadaddr = 0xFFF00000 + ( (thi+ (tlo >> 16) ) >> 16) +
-                       0xFE400; /* Default type = 'DOS' */
+                       (Default_FileType << 8); /* Default type = 'Text' */
     pRA->execaddr = (thi << 16) + tlo;
   }
 
@@ -1282,8 +1282,8 @@ err_t Xlt_SplitLeafnameX2 ( char *leafname, RISCOS_ATTRIBS *pRA,
 
   if (res != OK)
      {
-     /* No ",ttt" and no mimemap lookup - mark as a DOS file */
-     pRA->loadaddr = ENCODE_FILETYPE(pRA->loadaddr, FileType_MSDOS);
+     /* No ",ttt" and no mimemap lookup - mark as a Text file */
+     pRA->loadaddr = ENCODE_FILETYPE(pRA->loadaddr, Default_FileType);
      }
 
 return res;
@@ -1382,7 +1382,8 @@ int Xlt_AddROType ( char *leafname, uint loadaddr )
         if(!strcmp(typebuf,ftypebuf)) return 1;     // its OK.. no need to append type
      }
    }
-   strcat(leafname, typebuf);
+   // Don't append ,xxx filetype if its the default
+   if(strcmp(typebuf,Default_FileTName))strcat(leafname, typebuf);
    return 1;
 }
 #endif

@@ -242,7 +242,7 @@ static err_t RPC_EnumServersOnConnection ( char drv, char *domain )
   StartParams ( 0x0068, "WrLehDz", "B16BBDz", 8 );
   addword (0x0001);  /* Detail level */
   addword (TP.data_out_maxlen); /* Return buf size */
-  addlong (0xFFFFFFFF); /* Return all server types */
+  addlong ((int)0xFFFFFFFF); /* Return all server types */
   addstring ( domain ); /* Domain name */
 
   /* Make call */

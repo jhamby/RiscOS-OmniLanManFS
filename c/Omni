@@ -356,7 +356,7 @@ static err_t DoCLIop ( char *command, int mount_id )
 {
   _kernel_swi_regs R;
 
-  NAMELIST *pNL = Validate(mount_id, M_VALID_TAG);
+  NAMELIST *pNL = Validate(mount_id, (int)M_VALID_TAG);
 
   if ( pNL == NULL )
     return EBADPARAM;
@@ -488,7 +488,7 @@ err_t Omni_MountServer ( char *servname, char *userID, char *passwd,
 
   /* Check for mount with same name */
 
-  pNLmount = AddToList ( &MountsList, M_VALID_TAG, namebuf );
+  pNLmount = AddToList ( &MountsList, (int)M_VALID_TAG, namebuf );
 
   if ( pNLmount == NULL )    /* Out of memory -oops! */
     return ECONNLIMIT;
@@ -524,7 +524,7 @@ err_t Omni_MountServer ( char *servname, char *userID, char *passwd,
   if ( pNLsrv != NULL )
   {
     pNLmount->u.mount.diskname =
-      AddToList ( &pNLsrv->u.server.known_disks, D_VALID_TAG, mountpath );
+      AddToList ( &pNLsrv->u.server.known_disks, (int)D_VALID_TAG, mountpath );
   }
   else                /* Out of memory - carry on anyway */
   {
@@ -551,7 +551,7 @@ err_t Omni_MountServer ( char *servname, char *userID, char *passwd,
 
 err_t Omni_DismountServer ( int mount_id )
 {
-  NAMELIST *pNL = Validate(mount_id, M_VALID_TAG);
+  NAMELIST *pNL = Validate(mount_id, (int)M_VALID_TAG);
 
   if ( pNL == NULL )
     return EBADPARAM;
@@ -576,7 +576,7 @@ static uint size_clip ( uint val, uint limit, uint blksize )
 static err_t Omni_DetermineFreeSpace ( int mount_id,
        struct disk_size_response *DSR)
 {
-  NAMELIST *pNL = Validate(mount_id, M_VALID_TAG);
+  NAMELIST *pNL = Validate(mount_id, (int)M_VALID_TAG);
 
   if ( pNL == NULL )
     return EBADPARAM;
@@ -760,7 +760,7 @@ static err_t Omni_ListMounts (
 
   if ( token_in != 0 )
   {
-    pNLdisk = Validate(token_in, D_VALID_TAG);
+    pNLdisk = Validate(token_in, (int)D_VALID_TAG);
     if ( pNLdisk == NULL )
       return EBADPARAM;
   }
@@ -837,7 +837,7 @@ static err_t Omni_ListActiveMounts ( char *buf_ptr, int buf_size,
     pNL = MountsList;
   else
   {
-    pNL = Validate(token_in, M_VALID_TAG);
+    pNL = Validate(token_in, (int)M_VALID_TAG);
     if ( pNL == NULL )
       return EBADPARAM;
   }
@@ -891,7 +891,7 @@ static err_t Omni_ListPrinters ( char *buf_ptr, int buf_size,
     pNLstart = NULL;
   else
   {
-    pNLstart = Validate ( token_in, P_VALID_TAG );
+    pNLstart = Validate ( token_in, (int)P_VALID_TAG );
     if ( pNLstart == NULL )
       return EBADPARAM;
   }
@@ -1025,7 +1025,7 @@ err_t Omni_GetMountInfo ( int mount_id, char **pServName,
      char **pUserName, char **pMountName, char **pMountPath, int *pServerID )
 {
   char smbletter;
-  NAMELIST *pNL = Validate(mount_id, M_VALID_TAG);
+  NAMELIST *pNL = Validate(mount_id, (int)M_VALID_TAG);
 
   if ( pNL == NULL )
     return EBADPARAM;
