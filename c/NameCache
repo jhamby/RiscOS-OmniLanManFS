@@ -366,4 +366,4 @@ int main(void)
         return 0;
 }
 #endif /* TEST */
-#endif /* LONGNAMES
+#endif /* LONGNAMES */
