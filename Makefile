@@ -23,9 +23,9 @@ CINCLUDES    = ${TCPIPINC}
 HDRS         =
 CMHGFILE     = LanMan_MH
 CMHGDEPENDS  = LanMan LLC Logon NBIP Omni
-LIBS         = ${NET4LIBS} ${ASMUTILS}
+LIBS         = ${NET5LIBS} ${ASMUTILS}
 RES_PATH     = ThirdParty.OmniClient
-CDEFINES     = -DCOMPAT_INET4 -DLONGNAMES ${OPTIONS}
+CDEFINES     = -DLONGNAMES ${OPTIONS}
 CFLAGS       = ${C_NOWARN_NON_ANSI_INCLUDES}
 CDFLAGS      = -DDEBUG -DDEBUGLIB -DTRACE -Dprintf=module_printf
 ROMCDEFINES  = -DROM
@@ -34,7 +34,7 @@ ifeq ("${CMDHELP}","None")
 CMHGDEFINES += -DNO_INTERNATIONAL_HELP
 endif
 # Carry our own ThirdParty resources, don't put them in the Messages module
-CUSTOMRES    = custom
+CUSTOMRES    = no
 RESDIR       = ${MERGEDRDIR}
 OBJS        += ${RES_OBJ}
 INSTRES_FILES = ROM.Sprites

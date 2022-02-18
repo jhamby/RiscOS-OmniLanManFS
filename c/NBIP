@@ -399,6 +399,9 @@ static void SetupNameServer ( void )
     if ( ((b0 != 0) && (b0 != 127) && (b0 <= 223))  &&  ((b3 != 0) && (b3 != 255)) )
     {
       iab.nb[0]=b0, iab.nb[1] = b1, iab.nb[2] = b2, iab.nb[3] = b3;
+#ifndef COMPAT_INET4
+      NameServer_sin.sin_len    = sizeof(NameServer_sin);
+#endif
       NameServer_sin.sin_family = AF_INET;
       NameServer_sin.sin_port   = htons(NBNS_PORT);
       NameServer_sin.sin_addr   = iab.ina;
@@ -1656,6 +1659,9 @@ static err_t ConnectAttempt ( NBIP_SESSION *pNS, NETNAME *pnnFarEnd )
      new address, in which case it will get called again with a
      new socket */
 
+#ifndef COMPAT_INET4
+  sa.sin_len    = sizeof(sa);
+#endif
   sa.sin_family = AF_INET;
   sa.sin_port   = 0;       /* Alloc a port */
   sa.sin_addr.s_addr = INADDR_ANY;
@@ -1740,6 +1746,9 @@ EXPORT err_t _NB_OpenSession ( hNAME hLocalName, NETNAME *pnnFarEnd,
     return ENOHANDLES;
 
   pNS->lcl_name = lcl_end;
+#ifndef COMPAT_INET4
+  pNS->rmt_addr.sin_len    = sizeof(pNS->rmt_addr);
+#endif
   pNS->rmt_addr.sin_family = AF_INET;
   pNS->rmt_addr.sin_addr   = far_end->IPaddress;
   pNS->rmt_addr.sin_port   = htons(NBIP_SESSION_PORT);
@@ -2112,6 +2121,9 @@ EXPORT err_t _NB_Startup(void)
 
   /* Set up broadcast addresses */
 
+#ifndef COMPAT_INET4
+  Broadcast_sin.sin_len    = sizeof(Broadcast_sin);
+#endif
   Broadcast_sin.sin_family = AF_INET;
   Broadcast_sin.sin_port   = htons(NBNS_PORT);
   Broadcast_sin.sin_addr.s_addr = INADDR_BROADCAST;
@@ -2160,6 +2172,9 @@ EXPORT err_t _NB_Startup(void)
 #endif
 
   /* Bind socket */
+#ifndef COMPAT_INET4
+  sa.sin_len    = sizeof(sa);
+#endif
   sa.sin_family = AF_INET;
   sa.sin_port   = htons(NBNS_PORT);
   sa.sin_addr.s_addr = INADDR_ANY;
