@@ -107,7 +107,6 @@ extern struct NETBIOS_TRANSPORT *NB_ActiveTransport;
 /* Call one of these setup functions to point NB_ActiveTransport at the
    correct set of functions */
 
-extern void NB_NetBEUI_Setup(void);
 extern void NB_NBIP_Setup(void);
 
 
