@@ -163,46 +163,34 @@ typedef struct
 #define ECLASS_HARD     3
 
 
-#define SMBmkdir      0x00   /* create directory */
-#define SMBrmdir      0x01   /* delete directory */
-#define SMBopen       0x02   /* open file */
-#define SMBcreate     0x03   /* create file */
+#define SMBmkdir      0x00   /* create directory (Deprecated; use TRANS2_CREATE_DIRECTORY) */
+#define SMBrmdir      0x01   /* delete empty directory */
+#define SMBopen       0x02   /* open file (Deprecated) */
+#define SMBcreate     0x03   /* create file (Deprecated) */
 #define SMBclose      0x04   /* close file */
 #define SMBflush      0x05   /* flush file */
 #define SMBunlink     0x06   /* delete file */
 #define SMBmv         0x07   /* rename file */
-#define SMBgetatr     0x08   /* get file attributes */
-#define SMBsetatr     0x09   /* set file attributes */
-#define SMBread       0x0A   /* read from file */
-#define SMBwrite      0x0B   /* write to file */
-#define SMBlock       0x0C   /* lock byte range */
-#define SMBunlock     0x0D   /* unlock byte range */
-#define SMBctemp      0x0E   /* create temporary file */
-#define SMBmknew      0x0F   /* make new file */
+#define SMBgetatr     0x08   /* get file attributes (Deprecated; use TRANS2_QUERY_PATH_INFORMATION) */
+#define SMBsetatr     0x09   /* set file attributes (Deprecated; use TRANS2_SET_PATH_INFORMATION) */
+#define SMBread       0x0A   /* read from file (Deprecated) */
+#define SMBwrite      0x0B   /* write to file (Deprecated) */
+#define SMBlock       0x0C   /* lock byte range (Unused, Deprecated) */
+#define SMBunlock     0x0D   /* unlock byte range (Unused, Deprecated) */
 #define SMBchkpth     0x10   /* check directory path */
-#define SMBexit       0x11   /* process exit */
-#define SMBlseek      0x12   /* seek */
-#define SMBreadBraw   0x1A   /* Read block raw */
-#define SMBwriteBraw  0x1D   /* Write block raw */
+#define SMBlseek      0x12   /* seek (Obsolescent; use TRANS2_QUERY_PATH_INFORMATION) */
+#define SMBreadBraw   0x1A   /* Read block raw (Deprecated) */
+#define SMBwriteBraw  0x1D   /* Write block raw (Deprecated) */
 #define SMBtransact   0x25   /* RPC transaction */
-#define SMBtcon       0x70   /* tree connect */
+#define SMBtcon       0x70   /* tree connect (Deprecated) */
 #define SMBtdis       0x71   /* tree disconnect */
 #define SMBnegprot    0x72   /* negotiate protocol */
 #define SMBsesssetup  0x73   /* Session setup and X */
-#define SMBdskattr    0x80   /* get disk attributes */
-#define SMBsearch     0x81   /* search directory */
+#define SMBdskattr    0x80   /* get disk attributes (Deprecated; use TRANS2_QUERY_FS_INFORMATION) */
+#define SMBsearch     0x81   /* search directory (Deprecated; use TRANS2_FIND_FIRST2) */
 #define SMBsplopen    0xC0   /* open print spool file */
-#define SMBsplwr      0xC1   /* write to print spool file */
-#define SMBsplclose   0xC2   /* close print spool file */
-#define SMBsplretq    0xC3   /* return print queue */
-#define SMBsends      0xD0   /* send single block message */
-#define SMBsendb      0xD1   /* send broadcast message */
-#define SMBfwdname    0xD2   /* forward user name */
-#define SMBcancelf    0xD3   /* cancel forward */
-#define SMBgetmac     0xD4   /* get machine name */
-#define SMBsendstrt   0xD5   /* send start of multi-block message */
-#define SMBsendend    0xD6   /* send end of multi-block message */
-#define SMBsendtxt    0xD7   /* send text of multi-block message */
+#define SMBsplwr      0xC1   /* write to print spool file (Deprecated) */
+#define SMBsplclose   0xC2   /* close print spool file (Deprecated; use SMBclose) */
 
 #ifdef LONGNAMES
 /* The following are only available with LANMAN 2.0 Extended File Sharing
@@ -215,10 +203,12 @@ typedef struct
 #define SMBecho       0x2B
 
 /* And now the sub-commands for SMBtrans2 */
-#define TRANSACT2_FINDFIRST   0x01
-#define TRANSACT2_FINDNEXT    0x02
-#define TRANSACT2_QUERYFSINFORMATION 0x03
-#define TRANSACT2_QUERYPATHINFORMATION 0x05
+#define TRANS2_FIND_FIRST2            0x01
+#define TRANS2_FIND_NEXT2             0x02
+#define TRANS2_QUERY_FS_INFORMATION   0x03
+#define TRANS2_QUERY_PATH_INFORMATION 0x05
+#define TRANS2_SET_PATH_INFORMATION   0x06
+#define TRANS2_CREATE_DIRECTORY       0x0D
 #endif
 
 #define SUCCESS   0
@@ -332,21 +322,21 @@ BYTE          SMB_WorkBuf[SMBWORKBUF_SIZE];
 
 static int DOS_Errs[] =
 {
-  18, ENOMOREFILES,
-  2,  EFILENOTFOUND,
-  12, ENOTPRESENT,  /* Returned by OS2-Connect from SetAttrib */
-  50, ENOTPRESENT,  /* Returned by W4WG from SetAttrib call */
-  110, EFILENOTFOUND, /* Returned by OS2 servers for hidden files */
-  3,  EPATHNOTFOUND,
-  1,  EBADPARAM,
-  5,  ENOACCESS,
-  16, ESHARING,     /* Attempt to remove current dir on server */
-  80, EFILEEXISTS,
-  32, ESHARING,     /* Normal sharing violation */
-  67, ENOSUCHSHARE, /* Returned by NT3.5 for bad share names */
-  112, EDISCFULL,   /* Returned by NT3.5 when disk full */
-  65, ENOACCESS,    /* Returned by W4WG on set-attribs on CDROM */
-  145, EDIRNOTEMPTY, /* Attempt to remove non-empty directory */
+  0x12, ENOMOREFILES,
+  0x02, EFILENOTFOUND,
+  0x0C, ENOTPRESENT,    /* Returned by OS2-Connect from SetAttrib */
+  0x32, ENOTPRESENT,    /* Returned by W4WG from SetAttrib call */
+  0x6E, EFILENOTFOUND,  /* Returned by OS2 servers for hidden files */
+  0x03, EPATHNOTFOUND,
+  0x01, EBADPARAM,
+  0x05, ENOACCESS,
+  0x10, ESHARING,       /* Attempt to remove current dir on server */
+  0x50, EFILEEXISTS,
+  0x20, ESHARING,       /* Normal sharing violation */
+  0x43, ENOSUCHSHARE,   /* Returned by NT3.5 for bad share names */
+  0x70, EDISCFULL,      /* Returned by NT3.5 when disk full */
+  0x41, ENOACCESS,      /* Returned by W4WG on set-attribs on CDROM */
+  0x91, EDIRNOTEMPTY,   /* Attempt to remove non-empty directory */
   -1, EDOSERROR
 };
 
@@ -354,11 +344,11 @@ static int DOS_Errs[] =
 
 static int SMB_Errs[] =
 {
-  2,  EBADPASSWD,
-  4,  ENOACCESS,
-  6,  ENOSUCHSHARE,
-  5,  ENOACCESS,     /* Returned by W4WG when password changed */
-  2239, EACCDISABLED,
+  0x02,   EBADPASSWD,
+  0x04,   ENOACCESS,
+  0x06,   ENOSUCHSHARE,
+  0x05,   ENOACCESS,    /* Returned by W4WG when password changed */
+  0x08BF, EACCDISABLED,
   -1, ESERVERROR
 };
 
@@ -1847,7 +1837,7 @@ static err_t SMB_GetAttribsX2 (hSHARE hS, char *filename, DOS_ATTRIBS *pAttr )
     {
       fnbuffer[3] = '\0';
       Transact_init(&tp, 6 * 2);           /* will accept 6 WORD return params */
-      Transact_addsetupword(&tp, TRANSACT2_FINDFIRST);
+      Transact_addsetupword(&tp, TRANS2_FIND_FIRST2);
       if (LM_Vars.namemode & NM_HIDDEN)
       {                                    /* findfirst_Attribute */
         Transact_addword(&tp, ATTR_DIR | ATTR_SYS | ATTR_HID);
@@ -1905,7 +1895,7 @@ static err_t SMB_GetAttribsX2 (hSHARE hS, char *filename, DOS_ATTRIBS *pAttr )
   }
 
   Transact_init(&tp, 1 * 2);
-  Transact_addsetupword(&tp, TRANSACT2_QUERYPATHINFORMATION);
+  Transact_addsetupword(&tp, TRANS2_QUERY_PATH_INFORMATION);
   Transact_addword(&tp, 1);  /* information level */
   Transact_addlong(&tp, 0L); /* Reserved */
   Transact_addstring(&tp, filename+2);
@@ -2106,7 +2096,7 @@ static err_t SMB_GetFreeSpaceX2 ( hSHARE hS, struct disk_size_response *pDSR  )
   WORD bytes_per_sector;
 
   Transact_init(&tp, 1 * 2);
-  Transact_addsetupword(&tp, TRANSACT2_QUERYFSINFORMATION);
+  Transact_addsetupword(&tp, TRANS2_QUERY_FS_INFORMATION);
   Transact_addword(&tp, 1);  /* information level */
   res = SMB_Transact2(hS, &tp);
   if (res != OK)
@@ -2213,7 +2203,7 @@ static err_t SMB_ReadDirEntriesX2 ( hSHARE hS, char *path, int count,
      * Microsoft's own document - because it doesn't work if you only pass 5. Grr.
      */
     Transact_init(&con->tp, 6 * 2);                /* will accept 6 WORD return params */
-    Transact_addsetupword(&con->tp, TRANSACT2_FINDFIRST);
+    Transact_addsetupword(&con->tp, TRANS2_FIND_FIRST2);
     if (LM_Vars.namemode & NM_HIDDEN) {          /* findfirst_Attribute */
       Transact_addword(&con->tp, ATTR_DIR | ATTR_SYS | ATTR_HID);
     }
@@ -2239,7 +2229,7 @@ static err_t SMB_ReadDirEntriesX2 ( hSHARE hS, char *path, int count,
   else {
     /* Continuation */
     Transact_init(&con->tp, 4 * 2);                /* will accept 4 WORD return params */
-    Transact_addsetupword(&con->tp, TRANSACT2_FINDNEXT);
+    Transact_addsetupword(&con->tp, TRANS2_FIND_NEXT2);
     Transact_addword(&con->tp, con->dir_handle);   /* findnext_DirHandle */
     Transact_addword(&con->tp, count);             /* findnext_SearchCount */
     Transact_addword(&con->tp, 1);                 /* Search level  */
@@ -3141,7 +3131,7 @@ retry_transact2:
         pBres = GetData(pBres, NULL, padbytes);
       pBres = GetData(pBres, pT->data_out_buf + SMB_RxWords[8], SMB_RxWords[6]);
       tot_data_rcvd += SMB_RxWords[6];
-      if (pT->setup_in[0] == TRANSACT2_QUERYPATHINFORMATION)
+      if (pT->setup_in[0] == TRANS2_QUERY_PATH_INFORMATION)
         DumpBuffer(pT->data_out_buf, pT->data_out_len);
     }
 
@@ -3380,7 +3370,7 @@ err_t SMBFind_EnumDir(SMBFind_t *fnd, int dir_offset, const char *ro_path, int c
      * Microsoft's own document - because it doesn't work if you only pass 5. Grr.
      */
     Transact_init(&tp, 6 * 2);                /* sizeof response Trans2_Parameters - 6 WORDs */
-    Transact_addsetupword(&tp, TRANSACT2_FINDFIRST);
+    Transact_addsetupword(&tp, TRANS2_FIND_FIRST2);
     /* Trans2_Parameters */
     if (LM_Vars.namemode & NM_HIDDEN)
     {
@@ -3409,7 +3399,7 @@ err_t SMBFind_EnumDir(SMBFind_t *fnd, int dir_offset, const char *ro_path, int c
   {
     /* Continuation */
     Transact_init(&tp, 4 * 2);                /* sizeof response Trans2_Parameters 4 Words */
-    Transact_addsetupword(&tp, TRANSACT2_FINDNEXT);
+    Transact_addsetupword(&tp, TRANS2_FIND_NEXT2);
     Transact_addword(&tp, fnd->SID);          /* SID */
     Transact_addword(&tp, count);             /* SearchCount */
     Transact_addword(&tp, 1);                 /* InformationLevel */

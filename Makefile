@@ -17,12 +17,12 @@
 
 COMPONENT    = LanManFS
 OBJS         = Xlate Transact Stats SMB RPC Printers Omni NBIP \
-               NameCache Logon LLC LanMan CoreFn buflib Attr \
+               NameCache Logon LanMan CoreFn buflib Attr \
                Interface Auth md5c md4c
 CINCLUDES    = ${TCPIPINC}
 HDRS         =
 CMHGFILE     = LanMan_MH
-CMHGDEPENDS  = LanMan LLC Logon NBIP Omni
+CMHGDEPENDS  = LanMan Logon NBIP Omni
 LIBS         = ${NET5LIBS} ${ASMUTILS}
 RES_PATH     = ThirdParty.OmniClient
 CDEFINES     = -DLONGNAMES -DNO_NETBEUI ${OPTIONS}

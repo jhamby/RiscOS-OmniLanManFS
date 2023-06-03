@@ -22,8 +22,6 @@
 *
 */
 
-#if 0
-
 /* Standard includes */
 
 #include <stdio.h>
@@ -1379,6 +1377,4 @@ void NB_NetBEUI_Setup ( void )
   p->pfnInternetGone = _NB_InternetGone;
   p->pfnInternetInit = _NB_InternetInit;
 }
-#endif
-
 #endif
