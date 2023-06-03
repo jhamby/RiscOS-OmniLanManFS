@@ -616,7 +616,7 @@ static _kernel_oserror *Cmd_LMNameMode ( const char *args )
     char  spare[3]; /* required for sizeof(a) to work with readargs */
   } parsed;
   _kernel_oserror *e;
- 
+
   e = _swix(OS_ReadArgs, _INR(0,3),
                          "/e,preservecase/s,lowercase/s,firstcaps/s,includehidden/s,excludehidden/s",
                          args, &parsed, sizeof(parsed));
@@ -639,7 +639,7 @@ static _kernel_oserror *Cmd_LMNameMode ( const char *args )
     switch (LM_Vars.namemode & NM_MODE)
     {
       default:           /* Preserve case */
-                         token = "NMMode0"; 
+                         token = "NMMode0";
                          break;
       case NM_LOWERCASE: token = "NMMode1";
                          break;
@@ -671,7 +671,7 @@ static _kernel_oserror *Cmd_LMNameMode ( const char *args )
             mode = (flags >> 2) & NM_MODE;
             break;
   }
-  
+
   switch (flags & 0x30)
   {
     case 0x10: /* IncludeHidden */
@@ -685,13 +685,13 @@ static _kernel_oserror *Cmd_LMNameMode ( const char *args )
 
   if (mode == -1 && hidden == -1)
     return MsgError(EBADPARAM);
-  
+
   if (mode != -1)
   {
     LM_Vars.namemode &= ~NM_MODE;
     LM_Vars.namemode |= mode;
   }
-  
+
   if (hidden != -1)
   {
     LM_Vars.namemode &= ~NM_HIDDEN;
@@ -1146,7 +1146,7 @@ _kernel_oserror *LM_Initialise(const char *cmd_tail, int pod_base, void *pw)
   debug_initialise("LanManFS", "", "");
   debug_atexit();
   debug_set_options(0,0,0);
-  debug_output_device(DEBUGIT_OUTPUT);
+  debug_output_device(REPORTER_OUTPUT);
   LM_Vars.initialised = LMInitState_Uninitialised;
 
   (void)pod_base;

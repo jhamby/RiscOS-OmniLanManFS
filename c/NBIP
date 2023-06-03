@@ -174,17 +174,17 @@ static void debug_scope ( BYTE *src )
     i = *src;
     if ( i >= 0xC0 )
     {
-      printf("->pointer");
+      dprintf(("", "->pointer"));
       break;
     }
     if ( i >= 0x40 )
     {
-      printf("->invalid");
+      dprintf(("", "->invalid"));
       break;
     }
-    printf(".");
+    dprintf(("", "."));
     src++;
-    while ( i-- > 0 ) printf("%c", *src++);
+    while ( i-- > 0 ) dprintf(("", "%c", *src++));
   }
 }
 #else
@@ -199,24 +199,24 @@ static void show_scope ( BYTE *src )
 
   if ( *src == 0 )
   {
-    printf("  No NetBIOS scope ID set\n");
+    dprintf((__FILE__, "  No NetBIOS scope ID set\n"));
     return;
   }
 
-  printf("  NetBIOS scope ID is '");
+  dprintf((__FILE__, "  NetBIOS scope ID is '"));
   while ( *src != 0 )
   {
     i = *src;
     if ( i >= 0x40 )
     {
-      printf("(oops)");
+      dprintf(("", "(oops)"));
       break;
     }
     src++;
-    while ( i-- > 0 ) printf("%c", *src++);
-    if ( *src != 0 ) printf(".");
+    while ( i-- > 0 ) dprintf(("", "%c", *src++));
+    if ( *src != 0 ) dprintf(("", "."));
   }
-  printf("'\n");
+  dprintf(("", "'\n"));
 }
 #endif
 
