@@ -131,3 +131,6 @@
 #define NBIP_SESS_RETARGET  0x84
 #define NBIP_SESS_KEEPALIVE 0x85
 
+/* Direct TCP connection port */
+
+#define SMB_DIRECT_TCP_PORT 445

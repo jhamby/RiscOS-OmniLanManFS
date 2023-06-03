@@ -1559,6 +1559,7 @@ typedef struct
   int status;
   int sid;    /* Socket ID */
   bool LinkOK;
+  bool direct_tcp;
   NAME_ENTRY *lcl_name;
   struct sockaddr_in rmt_addr;
 }
@@ -1675,7 +1676,10 @@ static err_t ConnectAttempt ( NBIP_SESSION *pNS, NETNAME *pnnFarEnd )
                      sizeof(pNS->rmt_addr) ) != 0 )
     return ECONNECTSOCKET;
 
-  /* OK, we're connected - try a 'session request' */
+  /* OK, we're connected - if not direct TCP, try a 'session request' */
+
+  if ( pNS->direct_tcp )
+    return OK;
 
   p = DatagramBuf;
   *p++ = NBIP_SESS_REQUEST;
@@ -1726,6 +1730,7 @@ EXPORT err_t _NB_OpenSession ( hNAME hLocalName, NETNAME *pnnFarEnd,
   NAME_ENTRY   *lcl_end, *far_end;
   err_t res;
   int retargets=0;
+  int conn_mode;
 
   /* Check parameters */
   debug0("ValidatehName..\n");
@@ -1751,31 +1756,45 @@ EXPORT err_t _NB_OpenSession ( hNAME hLocalName, NETNAME *pnnFarEnd,
 #endif
   pNS->rmt_addr.sin_family = AF_INET;
   pNS->rmt_addr.sin_addr   = far_end->IPaddress;
-  pNS->rmt_addr.sin_port   = htons(NBIP_SESSION_PORT);
   far_end->status = RMT_CACHED;  /* No longer needed */
 
   /* Create socket for connection, with retries */
-  do
+  for ( conn_mode = 0; conn_mode < 2; conn_mode++ )
   {
-    pNS->sid = socket ( PF_INET, SOCK_STREAM, 0 );
-    if ( pNS->sid == INVALID_SOCKET )
+    /* Try direct TCP first, then fall back to NetBIOS-over-TCP. */
+    if ( conn_mode == 0 )
     {
-      res = ECREATESOCKET;
-      break;
+      pNS->direct_tcp          = true;
+      pNS->rmt_addr.sin_port   = htons(SMB_DIRECT_TCP_PORT);
     }
-    res = ConnectAttempt ( pNS, pnnFarEnd );
-    /* May return 'ERETARGET' - this isn't really an error */
-    if ( res == OK )
+    else
     {
-      pNS->status = SESS_CONNECTED;
-      pNS->LinkOK = true;
-      *phSession = (hSESSION) pNS;
-      return OK;
+      pNS->direct_tcp          = false;
+      pNS->rmt_addr.sin_port   = htons(NBIP_SESSION_PORT);
     }
-    debug1("ConnectAttempt, error %d\n", res);
-    socketclose ( pNS->sid );
+
+    do
+    {
+      pNS->sid = socket ( PF_INET, SOCK_STREAM, 0 );
+      if ( pNS->sid == INVALID_SOCKET )
+      {
+        res = ECREATESOCKET;
+        break;
+      }
+      res = ConnectAttempt ( pNS, pnnFarEnd );
+      /* May return 'ERETARGET' - this isn't really an error */
+      if ( res == OK )
+      {
+        pNS->status = SESS_CONNECTED;
+        pNS->LinkOK = true;
+        *phSession = (hSESSION) pNS;
+        return OK;
+      }
+      debug1("ConnectAttempt, error %d\n", res);
+      socketclose ( pNS->sid );
+    }
+      while ( res == ERETARGET && ++retargets < 10 );
   }
-    while ( res == ERETARGET && ++retargets < 10 );
 
   /* Failed - don't even keep the remote name's IP address in cache */
   FreeSession(pNS);
@@ -1931,7 +1950,8 @@ retry:
   }
 
   len = GetLong(hdr);
-  if ( (len >> 24) != NBIP_SESS_DATA ) /* Keepalive packet? */
+  if ( !pNS->direct_tcp &&
+       (len >> 24) != NBIP_SESS_DATA ) /* Keepalive packet? */
   {
     debug1("  Packet header %Xh", len);
     goto retry;
@@ -1984,7 +2004,8 @@ retry:
   }
 
   len = GetLong(hdr);
-  if ( (len >> 24) != NBIP_SESS_DATA ) /* Keepalive packet? */
+  if ( !pNS->direct_tcp &&
+       (len >> 24) != NBIP_SESS_DATA ) /* Keepalive packet? */
   {
     debug1("Packet header %Xh", len);
     goto retry;

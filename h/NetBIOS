@@ -64,11 +64,13 @@ struct FindName_res
 
 /* Structure containing all transport type declarations ---------- */
 
-/* We have two transport protocols (IP and NetBEUI) and currently
-   we select which one to use by redirecting all the function calls
-   via function pointers. It's not the ideal situation, where both
-   transports could operate simultaneously, but if I'm going to do
-   that, I'm going to do it in C++ */
+/* We have one transport protocol (IP) after the removal of NetBEUI.
+   The function calls are redirected via function pointers, but now
+   there's only one set of them. In the future, this indirection may
+   prove useful if we want to support QUIC transport for SMB 3.1.1,
+   but that will require refactoring the code to support multiple
+   simultaneous active transports. For now, this function table is
+   left unchanged to keep the SMB 2 code changes to a minimum. */
 
 struct NETBIOS_TRANSPORT
 {
