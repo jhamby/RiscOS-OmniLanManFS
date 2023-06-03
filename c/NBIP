@@ -1728,7 +1728,7 @@ EXPORT err_t _NB_OpenSession ( hNAME hLocalName, NETNAME *pnnFarEnd,
 {
   NBIP_SESSION *pNS;
   NAME_ENTRY   *lcl_end, *far_end;
-  err_t res;
+  err_t res = ENOSOCKETS;   /* fix "may be used before being set" warning */
   int retargets=0;
   int conn_mode;
 

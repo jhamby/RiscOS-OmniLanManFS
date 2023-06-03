@@ -237,6 +237,7 @@ static err_t Func_ReadDir1 ( int reason, char *path_name, char *buffer,
 
 /* ----------------- */
 
+#ifndef LONGNAMES
 /* Called in 2 situations
  *   - starting a search from scratch (dir_offset = 0)
  *   - continuing a search (dir_offset != 0)
@@ -260,22 +261,6 @@ static err_t Func_ReadDir ( int reason, char *path_name, char *buffer,
   one_name = (reason == FSEntry_Func_Reason_ReadDirectoryEntries) ? 16 :
              (reason == FSEntry_Func_Reason_ReadDirectoriesAndInformation) ? 36 : 44;
 
-#ifdef LONGNAMES
-  /* Of course, the above calculation assumes that the filename is at most
-   * 16 characters long (8 + '.' + 3 + \0 + 3 bytes pad).  This is
-   * useless for long filename shares and so the n_names parameter is
-   * accepted in place, and the buffer writer updated to be able to
-   * avoid and flag buffer overflow.  In the worst case, this may mean
-   * multiple searches are required, however, as long as the directory
-   * reading function SMB_ReadDirEntriesX2 is intelligent, it can remember
-   * the resume keys and last successful filename data for the search and
-   * attempt to keep our caller in step with the remote server.
-   *
-   * The limit is still performed as it is still useful for avoiding
-   * unnecessary buffer overruns - especially when there are not very
-   * many files with long names or even no files with long names.
-   */
-#endif
   if ( (n_names * one_name) > buflen ) n_names = buflen/one_name;
   if ( n_names <= 0 ) return EBADPARAM;
   debug1( "Adjusted count=%d\n", n_names );
@@ -290,11 +275,7 @@ static err_t Func_ReadDir ( int reason, char *path_name, char *buffer,
   if ( res != OK ) return res;
   if ( DOSnamebuf[strlen( DOSnamebuf ) - 1] != '\\' )
     strcat( DOSnamebuf, "\\");
-#ifdef LONGNAMES
-  strcat( DOSnamebuf, "*" );
-#else
   strcat( DOSnamebuf, "????????.???" );
-#endif
 
   /* Start a new search? */
   if (dir_offset == 0)
@@ -338,6 +319,7 @@ static err_t Func_ReadDir ( int reason, char *path_name, char *buffer,
 
   return res;
 }
+#endif
 
 /* Func ============================================================= */
 

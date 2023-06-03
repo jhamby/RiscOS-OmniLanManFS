@@ -472,72 +472,6 @@ static BUFCHAIN DumpChain(BUFCHAIN pB)
 #define DumpChain(pB) (pB)
 #endif
 
-#ifdef DEBUG
-typedef struct {
-        const char *name;
-        int size;
-} DumpVarStr;
-#define DVS_MK(name,type) {name, sizeof(type)}
-#define DVS_END {0,0}
-
-DumpVarStr dvs_NTnegprot[] = {
-	DVS_MK("dialect", WORD),
-	DVS_MK("securitymode", BYTE),
-	DVS_MK("maxmpx", WORD),
-	DVS_MK("maxvcs", WORD),
-	DVS_MK("maxbuffersize", DWORD),
-	DVS_MK("maxrawsize", DWORD),
-	DVS_MK("sessionkey", DWORD),
-	DVS_MK("capabilities", DWORD),
-	DVS_MK("systimelo", DWORD),
-	DVS_MK("systimehi", DWORD),
-	DVS_MK("servertimezone", WORD),
-	DVS_MK("securitybloblen", BYTE),
-	DVS_END
-};
-
-DumpVarStr dvs_negprot[] = {
-	DVS_MK("dialect", WORD),
-	DVS_MK("securitymode", WORD),
-	DVS_MK("maxbuffersize", DWORD),
-	DVS_MK("maxmpx", WORD),
-	DVS_MK("maxvcs", WORD),
-	DVS_MK("rawmode", WORD),
-	DVS_MK("sessionkey", DWORD),
-	DVS_MK("systime", WORD),
-	DVS_MK("sysdate", WORD),
-	DVS_MK("challengelen", WORD),
-	DVS_MK("reserved (MBZ)", WORD),
-	DVS_END
-};
-
-static void *DumpVar(void *ptr, const char *name, unsigned long sz)
-{
-        static const char *sizestr[] = { "<NULL>", "UCHAR", "USHORT", "????", "ULONG" };
-	BYTE *bptr = ptr;
-	unsigned long value = 0;
-	unsigned long s;
-
-	for (s=0; s<sz; ++s) {
-	        value |= ((unsigned long)(*bptr++) << (s<<3UL));
-	}
-	dprintf(("%6s %s: %#lx (%ld)\n", sizestr[sz], name, value, value));
-	return bptr;
-
-}
-
-static void DumpStruct(void *ptr, const DumpVarStr *dvs)
-{
-        while (dvs->size) {
-                ptr = DumpVar(ptr, dvs->name, dvs->size);
-                ++dvs;
-        }
-}
-#else
-#define DumpVar(ptr, name, sz) ((void *)(((char *)ptr)+sz))
-#define DumpStruct(ptr, str) ((void)0)
-#endif
-
 /* Does one SMB command (send & reply).
 
    hS is the connection handle to do it on (MUST BE VALIDATED!)
@@ -2174,7 +2108,6 @@ static err_t SMB_ReadDirEntriesX2 ( hSHARE hS, char *path, int count,
   int i;
   DWORD actual_resume_key;
   const int first_flags = ffirst_RETURN_KEYS;
-  const int stuck_flags = ffirst_RETURN_KEYS | fnext_CONTINUE;
   const int next_flags  = ffirst_RETURN_KEYS;
   bool path_changed = false;
   bool taken;

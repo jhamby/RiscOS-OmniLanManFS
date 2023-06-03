@@ -224,15 +224,15 @@ static void GetFSName ( char *buf_out )
 
 /* --------------------- */
 
+#ifndef NO_NETBEUI
 static void lanman_announce_lanmanfs(int r2, void *pw)
 {
-#ifndef NO_NETBEUI
   /* Send the service call announcing the presence/absence of a protocol module */
   if (NB_InitedTransport == NB_NetBEUI_Setup)
     (void) _swix(OS_ServiceCall, _INR(0,4), pw,
       Service_DCIProtocolStatus, r2, DCIVERSION, Module_Title);
-#endif
 }
+#endif
 
 /* Finalisation code ------------------------------------ */
 
@@ -271,8 +271,10 @@ _kernel_oserror * LM_Finalise (int fatal, int podule, void *pw)
 
   /* Dismount all (NB.Before announcing we're done with the protocol) */
   LM_GracefulClosedown();
+#ifndef NO_NETBEUI
   /* Tell the DCI driver the NetBEUI protocol is gone */
   lanman_announce_lanmanfs(DCIPROTOCOL_DYING, pw);
+#endif
   /* Now mark this filing system as gone */
   LM_Undeclare();
 
@@ -1504,7 +1506,9 @@ _kernel_oserror *callback_handler(_kernel_swi_regs *r, void *pw)
 	  case 2:
                 /* Re-entrancy on this code is OK - announce we are starting */
                 callbackflag = 0;
+#ifndef NO_NETBEUI
                 lanman_announce_lanmanfs(DCIPROTOCOL_STARTING, pw);
+#endif
                 break;
 	  case 1:
 	        debug0("Anti IdleOut Callback entered\n");
