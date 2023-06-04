@@ -784,6 +784,9 @@ static err_t SMB_Negotiate( hSHARE hS )
   if ( res != OK )
     return res;
 
+  /* If the server doesn't support any of the listed dialects, it returns 0xFFFF */
+  if (SMB_RxWords[0] > MAX_DIALECT)
+    return EPROTOCOLERR;
 
   debug1("Negotiated protocol `%s'\n", SMB_Dialect(SMB_RxWords[0]));
   hS->hServer->prot = SMB_RxWords[0];
