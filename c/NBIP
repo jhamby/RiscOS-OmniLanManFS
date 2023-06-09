@@ -1624,7 +1624,7 @@ static bool ReadData ( int sid, BYTE *where, int len, uint timeout, int flags )
       rdlen = recv ( sid, where, len, flags );
       if ( rdlen > 0 )
       {
-        if (flags & MSG_PEEK) break;
+        if (flags & MSG_PEEK) return true;  /* unexpected data from server */
         len -= rdlen;
         where += rdlen;
         tstart = NB_GetTime();
@@ -1632,6 +1632,7 @@ static bool ReadData ( int sid, BYTE *where, int len, uint timeout, int flags )
       }
     }
 
+    if (flags & MSG_PEEK) return false;     /* no unexpected server data */
     if ( timeout == 0 ) return true; /* No timeout requested, so none occurs */
     if ( NB_GetTime() - tstart > timeout )
     {
