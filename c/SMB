@@ -268,7 +268,7 @@ struct ActiveServer
   int      SMB_flg2;   /* Flags to pass in SMB_flg2 field */
   int      t2flags;
 #endif
-  int      prot;       /* which protocol was nogitated */
+  int      prot;       /* which protocol was negotiated */
   char     guid[16];   /* GUID returned from NT negprot commands */
   int      bloblen;
   BYTE     *blob;
