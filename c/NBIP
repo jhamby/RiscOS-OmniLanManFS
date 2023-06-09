@@ -1633,10 +1633,10 @@ static bool ReadData ( int sid, BYTE *where, int len, uint timeout, int flags )
     }
 
     if (flags & MSG_PEEK) return false;     /* no unexpected server data */
-    if ( timeout == 0 ) return true; /* No timeout requested, so none occurs */
+    if ( timeout == 0 ) return false;   /* No timeout requested, so none occurs */
     if ( NB_GetTime() - tstart > timeout )
     {
-      if ( timeout > 0) debug1("Timeout after %dcs\n", timeout);
+      debug1("Timeout after %dcs\n", timeout);
       return false;
     }
   }
