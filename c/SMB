@@ -329,7 +329,7 @@ static int DOS_Errs[] =
   0x6E, EFILENOTFOUND,  /* Returned by OS2 servers for hidden files */
   0x03, EPATHNOTFOUND,
   0x01, EBADPARAM,
-  0x05, ENOACCESS,
+  0x05, ENOACCESS,      /* No permission to modify or write to share */
   0x10, ESHARING,       /* Attempt to remove current dir on server */
   0x50, EFILEEXISTS,
   0x20, ESHARING,       /* Normal sharing violation */
@@ -509,7 +509,10 @@ static err_t Do_SMBResponse(hSHARE hS, int cmd, BUFCHAIN *ppB_out )
   /* Get reply */
   res = NB_GetData ( hS->hServer->hSession, &pB_rx, REPLY_TIMEOUT );
   if ( res != OK )
+  {
+    dprintf(("smb_2", "Do_SMB (cmd=0x%x) - NB_GetData => ERROR %d\n", cmd, res));
     return res;
+  }
 
   /* Extract received data */
   dprintf(("smb_2", "Do_SMB (cmd=0x%x) - NB_GetData => %d bytes\n", cmd, ChainLen(pB_rx)));
