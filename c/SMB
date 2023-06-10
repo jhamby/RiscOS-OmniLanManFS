@@ -805,6 +805,7 @@ static err_t SMB_Negotiate( hSHARE hS )
     if (SMB_RxWords[0] >= DIALECT_NT) {
       /* grr - different response format */
       hS->hServer->maxTxBufferSize = (SMB_RxWords[3] >> 8) | (SMB_RxWords[4] << 8) | (SMB_RxWords[5] << 24);
+      debug1("Max tx buffer size is %d\n", hS->hServer->maxTxBufferSize);
       hS->hServer->ProtFlags = PROT_RWMULTI + PROT_SETDATETIME +
 #ifdef SMB1_OLD_RAW_MODE
          (SMB_RxWords[9] & 1 ? PROT_READRAW+PROT_WRITERAW : 0 ) +
