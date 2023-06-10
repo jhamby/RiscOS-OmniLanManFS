@@ -1951,14 +1951,26 @@ retry:
   }
 
   len = GetLong(hdr);
-  if ( !pNS->direct_tcp &&
-       (len >> 24) != NBIP_SESS_DATA ) /* Keepalive packet? */
+  if ( (len >> 24) != NBIP_SESS_DATA )  /* Keepalive packet? */
   {
+    if ( pNS->direct_tcp )
+    {
+      /* for direct TCP, first byte of packet header must be 0 */
+      debug1(" ERROR: unexpected header byte 0x%x\n", (len >> 24) );
+      pNS->LinkOK = false;
+      return ETIMEOUT;
+    }
     debug1("  Packet header %Xh", len);
     goto retry;
   }
 
-  len &= 0x1FFFF; /* Max 128K of data */
+  if (len > 0x1FFFF)
+  {
+      debug1(" ERROR: response length %d too large!\n", len);
+      pNS->LinkOK = false;
+      return ETIMEOUT;
+  }
+
   Chain = AllocBlankChain(len);
   if ( Chain == NULL )
     return ENOBUFS;
@@ -2005,14 +2017,26 @@ retry:
   }
 
   len = GetLong(hdr);
-  if ( !pNS->direct_tcp &&
-       (len >> 24) != NBIP_SESS_DATA ) /* Keepalive packet? */
+  if ( (len >> 24) != NBIP_SESS_DATA )  /* Keepalive packet? */
   {
+    if ( pNS->direct_tcp )
+    {
+      /* for direct TCP, first byte of packet header must be 0 */
+      debug1(" ERROR: unexpected header byte 0x%x\n", (len >> 24) );
+      pNS->LinkOK = false;
+      return ETIMEOUT;
+    }
     debug1("Packet header %Xh", len);
     goto retry;
   }
 
-  len &= 0x1FFFF; /* Max 128K of data */
+  if ( len > *len_in_out )
+    {
+      debug2(" ERROR: response length %d but only %d bytes requested!\n",
+              len, *len_in_out);
+      len = *len_in_out;
+    }
+
   if ( !ReadData(pNS->sid, where, len, timeout, 0) )
   {
     pNS->LinkOK = false;
