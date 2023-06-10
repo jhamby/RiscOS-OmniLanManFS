@@ -85,11 +85,15 @@ struct NETBIOS_TRANSPORT
   err_t (*pfnOpenSession) ( hNAME hLocalName, NETNAME *pnnFarEnd,
                               hSESSION *phSession );
   err_t (*pfnSendData) ( hSESSION hS, BUFCHAIN Data );
+#ifdef SMB1_OLD_RAW_MODE
   err_t (*pfnSendBlockData) ( hSESSION hS, BYTE *where, uint datalen );
+#endif
   err_t (*pfnClearRxQueue) ( hSESSION hS );
   err_t (*pfnGetData) ( hSESSION hS, BUFCHAIN *pOutData, int timeout );
+#ifdef SMB1_OLD_RAW_MODE
   err_t (*pfnGetBlockData) ( hSESSION hS, BYTE *where, uint *len_in_out,
                                                   int timeout );
+#endif
   bool  (*pfnLinkOK) ( hSESSION hS );
   err_t (*pfnCloseSession) ( hSESSION hS );
   int   (*pfnFindNames) ( NETNAME *pnnFind,
@@ -126,10 +130,14 @@ extern void NB_NBIP_Setup(void);
 #define NB_OpenSession(a,b,c)	(NB_ActiveTransport->pfnOpenSession(a,b,c))
 #define NB_SendData(a,b)	(NB_ActiveTransport->pfnSendData(a,b))
 
+#ifdef SMB1_OLD_RAW_MODE
 #define NB_SendBlockData(a,b,c) (NB_ActiveTransport->pfnSendBlockData(a,b,c))
+#endif
 #define NB_ClearRxQueue(a)	(NB_ActiveTransport->pfnClearRxQueue(a))
 #define NB_GetData(a,b,c)	(NB_ActiveTransport->pfnGetData(a,b,c))
+#ifdef SMB1_OLD_RAW_MODE
 #define NB_GetBlockData(a,b,c,d) (NB_ActiveTransport->pfnGetBlockData(a,b,c,d))
+#endif
 #define NB_LinkOK(a)		(NB_ActiveTransport->pfnLinkOK(a))
 
 #define NB_CloseSession(a)	(NB_ActiveTransport->pfnCloseSession(a))

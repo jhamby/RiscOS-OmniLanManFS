@@ -1867,6 +1867,8 @@ EXPORT err_t _NB_SendData ( hSESSION hS, BUFCHAIN Data )
 
 /* ----------------------- */
 
+#ifdef SMB1_OLD_RAW_MODE
+
 EXPORT err_t _NB_SendBlockData ( hSESSION hS, BYTE *where, uint datalen )
 {
   NBIP_SESSION *pNS;
@@ -1903,6 +1905,8 @@ EXPORT err_t _NB_SendBlockData ( hSESSION hS, BYTE *where, uint datalen )
   usermode_donothing();
   return OK;
 }
+
+#endif
 
 /* ----------------------- */
 
@@ -1995,6 +1999,8 @@ retry:
 
 /* ----------------------- */
 
+#ifdef SMB1_OLD_RAW_MODE
+
 EXPORT err_t _NB_GetBlockData ( hSESSION hS, BYTE *where, uint *len_in_out,
                                                   int timeout )
 {
@@ -2047,6 +2053,8 @@ retry:
   *len_in_out = len;
   return OK;
 }
+
+#endif
 
 /* ----------------------- */
 
@@ -2333,10 +2341,14 @@ void NB_NBIP_Setup ( void )
   p->pfnRemoveLocalName = _NB_RemoveLocalName;
   p->pfnOpenSession = _NB_OpenSession;
   p->pfnSendData = _NB_SendData;
+#ifdef SMB1_OLD_RAW_MODE
   p->pfnSendBlockData = _NB_SendBlockData;
+#endif
   p->pfnClearRxQueue = _NB_ClearRxQueue;
   p->pfnGetData = _NB_GetData;
+#ifdef SMB1_OLD_RAW_MODE
   p->pfnGetBlockData = _NB_GetBlockData;
+#endif
   p->pfnLinkOK = _NB_LinkOK;
   p->pfnCloseSession = _NB_CloseSession;
   p->pfnFindNames = _NB_FindNames;

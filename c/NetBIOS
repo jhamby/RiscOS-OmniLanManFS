@@ -1027,6 +1027,8 @@ EXPORT err_t _NB_SendData ( hSESSION hSession, BUFCHAIN pB )
 
 /* ----------------------- */
 
+#ifdef SMB1_OLD_RAW_MODE
+
 EXPORT err_t _NB_SendBlockData ( hSESSION hSession, BYTE *data, uint datalen )
 {
   BUFCHAIN pB;
@@ -1087,6 +1089,8 @@ EXPORT err_t _NB_SendBlockData ( hSESSION hSession, BYTE *data, uint datalen )
   return OK;
 }
 
+#endif
+
 /* ----------------------- */
 
 EXPORT err_t _NB_ClearRxQueue ( hSESSION hSession )
@@ -1138,6 +1142,8 @@ EXPORT err_t _NB_GetData ( hSESSION hSession, BUFCHAIN *pOutData, int timeout )
 
 /* ----------------------- */
 
+#ifdef SMB1_OLD_RAW_MODE
+
 /* This is used chiefly by SMB_ReadRaw. The len_in_out parameter passes
    an advisory maximum block length in, and receives the received
    data count out. It is only set if OK is returned, and is unchanged
@@ -1178,6 +1184,8 @@ EXPORT err_t _NB_GetBlockData ( hSESSION hSession, BYTE *where, uint *len_in_out
 
   return ETIMEOUT;
 }
+
+#endif
 
 /* -------------------------------- */
 
@@ -1366,10 +1374,14 @@ void NB_NetBEUI_Setup ( void )
   p->pfnRemoveLocalName = _NB_RemoveLocalName;
   p->pfnOpenSession = _NB_OpenSession;
   p->pfnSendData = _NB_SendData;
+#ifdef SMB1_OLD_RAW_MODE
   p->pfnSendBlockData = _NB_SendBlockData;
+#endif
   p->pfnClearRxQueue = _NB_ClearRxQueue;
   p->pfnGetData = _NB_GetData;
+#ifdef SMB1_OLD_RAW_MODE
   p->pfnGetBlockData = _NB_GetBlockData;
+#endif
   p->pfnLinkOK = _NB_LinkOK;
   p->pfnCloseSession = _NB_CloseSession;
   p->pfnFindNames = _NB_FindNames;

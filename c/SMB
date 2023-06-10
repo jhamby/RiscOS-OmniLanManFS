@@ -108,8 +108,10 @@
 
 #define MAX_RX_BLOCK_SIZE (3*1452)  /* Windows clients' default, see [MS-CIFS].pdf note 91 (p709) */
 #define MAX_CORE_TX_BLOCK_SIZE 1024 /* Core dialect doesn't send MaxBufferSize value */
+#ifdef SMB1_OLD_RAW_MODE
 #define RDRAW_BLOCK_SIZE  32768
 #define WRRAW_BLOCK_SIZE  16384
+#endif
 #define PRN_BLOCK_SIZE    1024
 
 /* This structure relies on Norcroft C packing the bytes & words
@@ -223,8 +225,10 @@ typedef struct
 
 #define PROT_USERLOGON   1
 #define PROT_ENCRYPT     2
+#ifdef SMB1_OLD_RAW_MODE
 #define PROT_READRAW     4
 #define PROT_WRITERAW    8
+#endif
 #define PROT_RWMULTI     16
 #define PROT_SETDATETIME 32
 #define PROT_HAVE_GUID   64
@@ -650,11 +654,12 @@ static err_t Do_SMB ( hSHARE hS, int cmd, int wct_in, BUFCHAIN pB_in,
 
 /* ---------------------------- */
 
+#ifdef SMB1_OLD_RAW_MODE
+
 /* This attempts to do a ReadRaw on a given file. If there are any errors,
    or we're at end of file, it returns 0. Assume 'hS' etc. has been
    validated.
 */
-
 
 static uint SMB_ReadRaw ( hSHARE hS,
                      int fid, uint offset, uint len, BYTE *where )
@@ -744,6 +749,8 @@ static err_t SMB_WriteRaw ( hSHARE hS, int fid, uint offset,
 
 }
 
+#endif
+
 /* sbrodie: Abstract the dialect strings here - means debug version can
  * call this function to find out which protocol was accepted.  The
  * offsets within the array of each string are vital to SMB_Negotiate.
@@ -799,7 +806,9 @@ static err_t SMB_Negotiate( hSHARE hS )
       /* grr - different response format */
       hS->hServer->maxTxBufferSize = (SMB_RxWords[3] >> 8) | (SMB_RxWords[4] << 8) | (SMB_RxWords[5] << 24);
       hS->hServer->ProtFlags = PROT_RWMULTI + PROT_SETDATETIME +
+#ifdef SMB1_OLD_RAW_MODE
          (SMB_RxWords[9] & 1 ? PROT_READRAW+PROT_WRITERAW : 0 ) +
+#endif
          (SMB_RxWords[1] & 1 ? PROT_USERLOGON : 0 ) +
          (SMB_RxWords[1] & 2 ? PROT_ENCRYPT : 0 );
       if (SMB_RxWords[11] & 0x80) {
@@ -820,8 +829,12 @@ static err_t SMB_Negotiate( hSHARE hS )
       hS->hServer->ProtFlags = PROT_RWMULTI + PROT_SETDATETIME +
          (SMB_RxWords[1] & 1 ? PROT_USERLOGON : 0 ) +
          (SMB_RxWords[1] & 2 ? PROT_ENCRYPT : 0 ) +
+#ifdef SMB1_OLD_RAW_MODE
          (SMB_RxWords[5] & 1 ? PROT_READRAW : 0 ) +
          (SMB_RxWords[5] & 2 ? PROT_WRITERAW : 0 );
+#else
+         0;
+#endif
       hS->hServer->bloblen = SMB_RxWords[11];
       hS->hServer->Sesskey = SMB_RxWords[6] | (SMB_RxWords[7] << 16);
     }
@@ -2561,6 +2574,7 @@ err_t SMB_Read ( int FH, uint offset, uint len, BYTE *where,
 
   /* Can a raw block read help us ? */
 
+#ifdef SMB1_OLD_RAW_MODE
   if ( hS->hServer->ProtFlags & PROT_READRAW )
   {
     while ( len_left > MAX_RECV_SIZE )
@@ -2574,6 +2588,7 @@ err_t SMB_Read ( int FH, uint offset, uint len, BYTE *where,
       offset   += n_read;
     }
   }
+#endif
 
   /* Conventional read command */
 
@@ -2664,6 +2679,7 @@ err_t SMB_Write ( int FH, uint offset, uint len, BYTE *where,
 
   /* Can we do it with raw writes? */
 
+#ifdef SMB1_OLD_RAW_MODE
   if ( hS->hServer->ProtFlags & PROT_WRITERAW )
   {
     while ( len_left >= WRRAW_BLOCK_SIZE )
@@ -2678,6 +2694,7 @@ err_t SMB_Write ( int FH, uint offset, uint len, BYTE *where,
       offset   += n_written;
     }
   }
+#endif
 
   while ( len_left > 0 )
   {
