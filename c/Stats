@@ -45,6 +45,7 @@ struct stat_info
 static struct stat_info statinfo[] =
 {
   STA_SERIOUS_BARF, SCLASS_GENERAL,  "Internal errors",
+#ifndef NO_NETBEUI
   STA_NETTX_PKTS,   SCLASS_NETBEUI,  "Total Tx packets",
   STA_NETRX_EVTS,   SCLASS_NETBEUI,  "Total Rx events",
   STA_NETRX_PKTS,   SCLASS_NETBEUI,  "Total Rx packets",
@@ -76,10 +77,10 @@ static struct stat_info statinfo[] =
 
   STA_LLCRX_UNKNOWNU, SCLASS_NETBEUI,"LLC: Unknown U-format pkt",
   STA_LLC_T1EXPIRE, SCLASS_NETBEUI,  "LLC: T1 timeouts",
+#endif
 
   STA_IP_EVENTS,    SCLASS_IP,       "IP:  Internet events",
   STA_IP_RXDGRAM,   SCLASS_IP,       "IP:  Receive datagrams",
-
 
   -1, 0, NULL
 };
