@@ -806,9 +806,11 @@ static err_t SMB_Negotiate( hSHARE hS )
       /* grr - different response format */
       hS->hServer->maxTxBufferSize = (SMB_RxWords[3] >> 8) | (SMB_RxWords[4] << 8) | (SMB_RxWords[5] << 24);
       debug1("Max tx buffer size is %d\n", hS->hServer->maxTxBufferSize);
+      debug2("SecurityMode: 0x%x  Capabilities: 0x%08x\n", SMB_RxWords[1] & 0xFF,
+             (SMB_RxWords[9] >> 8) | (SMB_RxWords[10] << 8) | (SMB_RxWords[11] << 24));
       hS->hServer->ProtFlags = PROT_RWMULTI + PROT_SETDATETIME +
 #ifdef SMB1_OLD_RAW_MODE
-         (SMB_RxWords[9] & 1 ? PROT_READRAW+PROT_WRITERAW : 0 ) +
+         (SMB_RxWords[9] & 0x100 ? PROT_READRAW+PROT_WRITERAW : 0 ) +
 #endif
          (SMB_RxWords[1] & 1 ? PROT_USERLOGON : 0 ) +
          (SMB_RxWords[1] & 2 ? PROT_ENCRYPT : 0 );
