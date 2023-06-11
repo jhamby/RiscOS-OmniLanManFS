@@ -1658,10 +1658,12 @@ err_t SMB_DeleteShare ( char drvlettr )
 
 /* Public file/directory routines ================================ */
 
+#ifdef SMB1_OLD_ANTI_IDLE
 static err_t SMB_ChkPath ( char *path )
 {
   return SMB_SingleOp( SMBchkpth, path );
 }
+#endif
 
 /* ----------------------------- */
 
@@ -3222,6 +3224,7 @@ err_t SMB_Shutdown ( void )
 
 /* ---------------------------- */
 
+#ifdef SMB1_OLD_ANTI_IDLE
 /* SMB_AntiIdle() is used to stop idle-outs on shares.
  * Each call, it moves onto the next share in order to
  * "ping" the server to keep it awake.
@@ -3250,6 +3253,7 @@ void SMB_AntiIdle ( void )
     }
   }
 }
+#endif
 
 #define SMBFind_GetOffsetHi(offset)          (((DWORD)(offset)) >> 16)
 #define SMBFind_GetOffsetLow(offset)         ((offset) & 0xffff)

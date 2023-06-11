@@ -74,15 +74,19 @@ enum {
         LMInitState_Boot
 };
 
+#ifdef SMB1_OLD_ANTI_IDLE
 static void startcallbacks(void);
 static void stopcallbacks(void);
+#endif
 
 static _kernel_oserror *LM_init_phase_2(void);
 
 /* ---------------------------------- */
 
 struct LMvars LM_Vars;
+#ifdef SMB1_OLD_ANTI_IDLE
 static volatile int callbackflag = 0;
+#endif
 static int msg_struct[4]; /* MessageTrans block */
 static _kernel_oserror msg_buff; /* MessageTrans buffer */
 static _kernel_oserror *msg_oserr;
@@ -254,7 +258,9 @@ static void LM_Undeclare ( void )
 
 static void LM_GracefulClosedown(void)
 {
+#ifdef SMB1_OLD_ANTI_IDLE
   stopcallbacks();
+#endif
   SMB_Shutdown();            /* Dismounts all SMB mounts first as */
   Omni_Shutdown();           /* Omni_Shutdown zeros the Mounts lists */
   Prn_Shutdown();            /* Free print jobs */
@@ -1253,7 +1259,9 @@ static _kernel_oserror *LM_init_phase_2(void)
   }
 #endif
 
+#ifdef SMB1_OLD_ANTI_IDLE
   startcallbacks();
+#endif
 
   /* We have now managed to fully initialise everything that we need - whee! */
   LM_Vars.initialised = LMInitState_FullyInited;
@@ -1499,6 +1507,8 @@ int module_printf(const char *str, ...)
  * that happening.
  */
 
+#ifdef SMB1_OLD_ANTI_IDLE
+
 _kernel_oserror *callback_handler(_kernel_swi_regs *r, void *pw)
 {
 	(void) r;
@@ -1551,3 +1561,5 @@ static void stopcallbacks(void)
         (void) _swix(OS_RemoveTickerEvent, _INR(0,1), callevery_entry, LM_pw);
         clearcallback();
 }
+
+#endif /* SMB1_OLD_ANTI_IDLE */

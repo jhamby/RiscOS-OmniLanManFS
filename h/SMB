@@ -206,7 +206,9 @@ extern const char *SMB_GetConnInfo ( char drvlettr, int type );
 extern bool SMB_ConnectedTo ( char *server );
 
 /* Implement idle out protection for broken Microsoft servers */
+#ifdef SMB1_OLD_ANTI_IDLE
 extern void SMB_AntiIdle ( void );
+#endif
 
 /* Timeouts * */
 
