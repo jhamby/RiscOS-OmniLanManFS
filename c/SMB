@@ -2730,7 +2730,9 @@ err_t SMB_Write ( int FH, uint offset, uint len, BYTE *where,
       break;
   }
 
+#ifdef SMB1_OLD_RAW_MODE
 finish:
+#endif
   if ( pOutLen != NULL ) *pOutLen = len-len_left;
   return res;
 

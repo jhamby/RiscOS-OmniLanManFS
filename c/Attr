@@ -85,7 +85,7 @@ static void GetDefaultType ( char *leafname, RISCOS_ATTRIBS *ra )
     return;
   }
 
-  leafname = strchr(leafname, '.');
+  leafname = strrchr(leafname, '.');  /* Find last '.' */
   if ( leafname == NULL )  /* No extension */
   {
     debug2("Assuming filetype %03x for '%s' due to no suffix\n", LM_Vars.default_type, leafname );
@@ -108,7 +108,7 @@ static void GetDefaultType ( char *leafname, RISCOS_ATTRIBS *ra )
     return;
   }
 
-  /* Look through the feable small table */
+  /* Look through the feeble small table */
   for ( pET = FTypes; pET->ext != NULL; pET++ )
   {
     if ( strcmp ( pET->ext, leafname ) == 0 )
