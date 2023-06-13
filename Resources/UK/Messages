@@ -1,7 +1,6 @@
 DispName:LAN Manager
 _Version:Filled by build system
 WhoTCPIP:Lan Manager/TCPIP client
-WhoBEUI:Lan Manager/NetBEUI client
 WhoLogon:Lan Manager/Logon client
 XtrLogon:Logon Network
 Free:Bytes free

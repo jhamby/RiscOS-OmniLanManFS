@@ -787,19 +787,14 @@ static _kernel_oserror *Cmd_FS ( const char *args )
 
 /* --------------------- */
 
+#ifndef NO_NETBEUI
+
 static _kernel_oserror *Cmd_LMTransport ( const char *args )
 {
   /* This is a *Configure/Status command handler */
   char *argv[1];
   static const char *tp1 = "IP";
 
-#ifdef NO_NETBEUI
-  if (args == arg_CONFIGURE_SYNTAX || args == arg_STATUS)
-  {
-    printf("LMTransport  IP\n");
-    return NULL;
-  }
-#else
   static const char *tp0 = "NetBEUI";
   if ( args == arg_CONFIGURE_SYNTAX ) /* Show 'Configure' options */
   {
@@ -812,15 +807,13 @@ static _kernel_oserror *Cmd_LMTransport ( const char *args )
       (RdCMOS(CMOS_NB_TYPE) & NBTYPE_IP_BIT) ? tp1:tp0);
     return NULL;
   }
-#endif
+
   if ( GetArgs( args, argv, 1 ) < 1 )
     return MsgError ( EBADPARAM );
 
-#ifndef NO_NETBEUI
   if ( stricmp ( argv[0], tp0 ) == 0 )
     WrCMOS(CMOS_NB_TYPE, RdCMOS(CMOS_NB_TYPE) & ~NBTYPE_IP_BIT );
   else
-#endif
   if ( stricmp ( argv[0], tp1 ) == 0 )
     WrCMOS(CMOS_NB_TYPE, RdCMOS(CMOS_NB_TYPE) | NBTYPE_IP_BIT );
   else
@@ -828,6 +821,8 @@ static _kernel_oserror *Cmd_LMTransport ( const char *args )
 
   return NULL;
 }
+
+#endif /* NO_NETBEUI */
 
 /* --------------------- */
 static _kernel_oserror *Cmd_LMNameServer( const char *args )
@@ -902,11 +897,13 @@ static CommandFnPtr Cmd_Dispatch[] =
   CmdEntry(LMLogoff),
   CmdEntry(LMServer),
   CmdEntry(LMPrinters),
-  CmdEntry(FS),
-  CmdEntry(LMTransport),
-  CmdEntry(LMNameServer),
   CmdEntry(Free),
-  CmdEntry(ListFS)
+  CmdEntry(ListFS),
+  CmdEntry(FS),
+#ifndef NO_NETBEUI
+  CmdEntry(LMTransport),
+#endif
+  CmdEntry(LMNameServer)
 };
 
 #define MAX_CMDS (sizeof Cmd_Dispatch / sizeof Cmd_Dispatch[0])

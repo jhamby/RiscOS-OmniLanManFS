@@ -62,64 +62,66 @@ command-keyword-table: LM_Command
 
     LanMan(min-args:0, max-args:0, add-syntax:,
            help-text: "*LanMan selects LanManFS as the current filing system\n",
-           invalid-syntax: "Syntax:\t*LanMan" ),
+           invalid-syntax: "Syntax:\t*LanMan\n" ),
 
     LMConnect(min-args:3, max-args:5, add-syntax:, fs-command:,
            help-text: "*LMConnect sets up a connection to a file server\n",
-           invalid-syntax: "Syntax:\t*LMConnect <name> <server> <dir-name> [<user> <password>]", ),
+           invalid-syntax: "Syntax:\t*LMConnect <name> <server> <dir-name> [<user> <password>]\n", ),
 
     LMDisconnect(min-args:1, max-args:1, add-syntax:, fs-command:,
            help-text: "*LMDisconnect disconnects from a file server\n",
-           invalid-syntax: "Syntax:\t*LMDisconnect <name>", ),
+           invalid-syntax: "Syntax:\t*LMDisconnect <name>\n", ),
 
     LMLogon(min-args:2, max-args:3, add-syntax:, fs-command:,
            help-text: "*LMLogon sets default information about the network\n",
-           invalid-syntax: "Syntax:\t*LMLogon <workgroup> <username> <password>", ),
+           invalid-syntax: "Syntax:\t*LMLogon <workgroup> <username> <password>\n", ),
 
     LMInfo(min-args:0, max-args:0, add-syntax:, fs-command:,
            help-text: "*LMInfo displays debugging information\n",
-           invalid-syntax: "Syntax:\t*LMInfo", ),
+           invalid-syntax: "Syntax:\t*LMInfo\n", ),
 
     LMNameMode(min-args:0, max-args:2, add-syntax:, fs-command:,
            help-text: "*LMNameMode sets the capitalisation of DOS short names on DOS shares and whether hidden files are shown.\n"
-           invalid-syntax: "Syntax:\t*LMNameMode  [-PreserveCase | -Lowercase | -FirstCaps] [-IncludeHidden | -ExcludeHidden]", ),
+           invalid-syntax: "Syntax:\t*LMNameMode  [-PreserveCase | -Lowercase | -FirstCaps] [-IncludeHidden | -ExcludeHidden]\n", ),
 
     LMLogoff(min-args:0, max-args:0, add-syntax:, fs-command:,
            help-text: "*LMLogoff clears the workgroup and default user settings "
                       "and disables network browsing\n",
-           invalid-syntax: "Syntax:\t*LMLogoff" ),
+           invalid-syntax: "Syntax:\t*LMLogoff\n" ),
 
     LMServer(min-args:1, max-args:17, add-syntax:, fs-command:,
            help-text: "*LMServer adds a server name and list of shared drives\n",
-           invalid-syntax: "Syntax:\t*LMServer server [sharename] [sharename] ...", ),
+           invalid-syntax: "Syntax:\t*LMServer server [sharename] [sharename] ...\n", ),
 
     LMPrinters(min-args:1, max-args:17, add-syntax:, fs-command:,
            help-text: "*LMPrinters adds a server name and list of printers\n",
-           invalid-syntax: "Syntax:\t*LMPrinters server [printername] [printername] ...", ),
+           invalid-syntax: "Syntax:\t*LMPrinters server [printername] [printername] ...\n", ),
 
     Free(min-args:0, max-args:1, add-syntax:, fs-command:,
-           help-text: "*Free displays the total free space on a LanManFS share",
-           invalid-syntax: "Syntax:\t*Free [<disc spec.>]", ),
+           help-text: "*Free displays the total free space on a LanManFS share\n",
+           invalid-syntax: "Syntax:\t*Free [<disc spec.>]\n", ),
 
     ListFS(min-args:0, max-args:1, add-syntax:, fs-command:,
            help-text: "*ListFS displays the servers in the current LAN workgroup or "
                       "the shares on the given server\n",
-           invalid-syntax: "Syntax:\t*ListFS [server]", ),
+           invalid-syntax: "Syntax:\t*ListFS [server]\n", ),
 
     FS(min-args:0, max-args:1, add-syntax:, configure:, status:,
            help-text: "*Configure FS sets the file server or domain name from "
                       "which LanManFS will attempt to boot\n",
-           invalid-syntax: "Syntax:\t*Configure FS file-server-name", ),
+           invalid-syntax: "Syntax:\t*Configure FS file-server-name\n", ),
 
+#ifndef NO_NETBEUI
     LMTransport(min-args:0, max-args:1, add-syntax:, configure:, status:,
            help-text: "*Configure LMTransport sets whether LanManFS should use "
                       "NetBEUI or TCP/IP as transport protocol\n",
-           invalid-syntax: "Syntax:\t*Configure LMTransport IP | NetBEUI", ),
+           invalid-syntax: "Syntax:\t*Configure LMTransport IP | NetBEUI\n", ),
+#endif
 
     LMNameServer(min-args:0, max-args:1, add-syntax:, configure:, status:,
            help-text: "*Configure LMNameServer sets the address of a "
                       "NetBIOS over IP nameserver for LanManFS to use\n",
-           invalid-syntax: "Syntax:\t*Configure LMNameServer <IP address>", )
+           invalid-syntax: "Syntax:\t*Configure LMNameServer <IP address>\n", )
 
 #else
 
@@ -128,7 +130,7 @@ command-keyword-table: LM_Command
 
     LanMan(min-args:0, max-args:0, international:,
            help-text: "HLANM",
-           invalid-syntax: "SLMAN" ),
+           invalid-syntax: "SLMAN", ),
 
     LMConnect(min-args:3, max-args:5, international:, fs-command:,
            help-text: "HCONN",
@@ -152,7 +154,7 @@ command-keyword-table: LM_Command
 
     LMLogoff(min-args:0, max-args:0, international:, fs-command:,
            help-text: "HLOGO",
-           invalid-syntax: "SLOGO" ),
+           invalid-syntax: "SLOGO", ),
 
     LMServer(min-args:1, max-args:17, international:, fs-command:,
            help-text: "HSERV",
@@ -174,9 +176,11 @@ command-keyword-table: LM_Command
            help-text: "HCFFS",
            invalid-syntax: "SCFFS", ),
 
+#ifndef NO_NETBEUI
     LMTransport(min-args:0, max-args:1, international:, configure:, status:,
            help-text: "HCTRN",
            invalid-syntax: "SCTRN", ),
+#endif
 
     LMNameServer(min-args:0, max-args:1, international:, configure:, status:,
            help-text: "HCNMS",

@@ -59,7 +59,11 @@
 #include "NBIP.h"
 #include "LanMan_MH.h"
 
+#ifdef NO_NETBEUI
+#define EXPORT
+#else
 #define EXPORT static
+#endif
 
 /* Our definitions ------------------ */
 
@@ -2279,7 +2283,7 @@ EXPORT err_t _NB_Startup(void)
 
  */
 
-static void _NB_InternetGone(void)
+EXPORT void _NB_InternetGone(void)
 {
   int i;
 
@@ -2305,7 +2309,7 @@ static void _NB_InternetGone(void)
 
  */
 
-static void _NB_InternetInit(void)
+EXPORT void _NB_InternetInit(void)
 {
   if (NBNS_Socket == INVALID_SOCKET)
   {
@@ -2331,7 +2335,9 @@ void NB_NBIP_Setup ( void )
 {
   struct NETBIOS_TRANSPORT *p;
   NB_ActiveTransport = p = &NBIP_Transport;
+  p->hMachineName = NULL;                     /* NetBIOS name handle */
 
+#ifndef NO_NETBEUI
   p->pfnStartup	 = _NB_Startup;
   p->pfnShutdown = _NB_Shutdown;
   p->pfnFormatName = _NB_FormatName;
@@ -2355,4 +2361,5 @@ void NB_NBIP_Setup ( void )
   p->pfnDescribeLink = _NB_DescribeLink;
   p->pfnInternetGone = _NB_InternetGone;
   p->pfnInternetInit = _NB_InternetInit;
+#endif
 }
