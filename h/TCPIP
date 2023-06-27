@@ -20,6 +20,7 @@
 #include "inetlib.h"
 #include "socklib.h"
 #include "netdb.h"
+
 /* RISCOS definitions ========================================== */
 
 /* The Internet event: ---------- */

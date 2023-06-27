@@ -23,6 +23,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 
 #include "kernel.h"
 #include "swis.h"
@@ -32,12 +33,9 @@
 #include "Params.h"
 #include "CoreFn.h"
 #include "Xlate.h"
-#include "Attr.h"
 #include "SMB.h"
 #include "Omni.h"
-#include "Transact.h"
 #include "NameCache.h"
-#include "SMBFind.h"
 
 
 #define NAMEBUF_LEN (2*DOS_NAME_LEN)
@@ -48,6 +46,7 @@ static err_t FileGetAttribs ( char *filename, DOS_ATTRIBS *pda,
     RISCOS_ATTRIBS *pra );
 
 /* Read-directory subroutines ======================================= */
+
 static int   RD_Reason;
 static char *RD_BufPtr;
 static int   RD_BufLen;
@@ -67,18 +66,14 @@ static char *WriteEntry ( int reason, char *ptr, BYTE *entry, int format )
   RISCOS_ATTRIBS ra;
   int *IntPtr;
 
-#ifndef LONGNAMES
-  (void) format;
-#else
   if (format == 1) {
     Xlt_ExpandSearchEntryX2(entry, DOSnamebuf, namebuf, &da, &ra);
   }
   else
-#endif
     Xlt_ExpandSearchEntry(entry, DOSnamebuf, namebuf, &da, &ra);
 
   name_len = strlen(namebuf) + 1;
-  debug1("WriteEntry (%s)\n", namebuf);
+  SMBDEBUG("WriteEntry (%s)\n", namebuf);
 
   switch ( reason )
   {
@@ -123,7 +118,7 @@ static char *WriteEntry ( int reason, char *ptr, BYTE *entry, int format )
   }
 
   if (rec_len > RD_BufLen) {
-    debug2("WriteEntry detects a buffer overflow (%d > %d)\n",
+    SMBDEBUG("WriteEntry detects a buffer overflow (%d > %d)\n",
             rec_len, RD_BufLen);
     RD_BufLen = -1;
     return NULL;
@@ -141,7 +136,6 @@ static err_t Dir_CallbackFn ( BYTE *entry, int format, bool *taken, void *pw )
 
   *taken = false;
 
-#ifdef LONGNAMES
   /* Insert check for . and .. here */
   if (format == 1) {
     if (entry[23] == '.') {
@@ -154,7 +148,6 @@ static err_t Dir_CallbackFn ( BYTE *entry, int format, bool *taken, void *pw )
     }
   }
   else
-#endif
   if ( entry[9] == '.' ) {
     /* Ignore '.' and '..' directories */
     if (entry[10] == '.' && entry[11] == '\0' || entry[10] == '\0') {
@@ -171,7 +164,7 @@ static err_t Dir_CallbackFn ( BYTE *entry, int format, bool *taken, void *pw )
       *taken = true;
     }
     else {
-      debug0("Oh dear - client ran out of buffer space!\n");
+      SMBDEBUG("Oh dear - client ran out of buffer space!\n");
       return EOUTOFMEM;
     }
   }
@@ -181,7 +174,6 @@ static err_t Dir_CallbackFn ( BYTE *entry, int format, bool *taken, void *pw )
 
 /* ----------------- */
 
-#ifdef LONGNAMES
 static err_t Func_ReadDir1 ( int reason, char *path_name, char *buffer,
        int n_names, int dir_offset, int buflen, int *pOutNread,
        int *pOutNextOffset )
@@ -233,93 +225,6 @@ static err_t Func_ReadDir1 ( int reason, char *path_name, char *buffer,
 
   return res;
 }
-#endif
-
-/* ----------------- */
-
-#ifndef LONGNAMES
-/* Called in 2 situations
- *   - starting a search from scratch (dir_offset = 0)
- *   - continuing a search (dir_offset != 0)
- * The underlying SMB routine must track whether it has been called
- * recursively or from within Xlt_NameROtoDOSX2_sub and deal with
- * abandoning searches appropriately.
- */
-static err_t Func_ReadDir ( int reason, char *path_name, char *buffer,
-       int n_names, int dir_offset, int buflen, int *pOutNread,
-       int *pOutNextOffset )
-{
-  static Transact_SearchContext con;
-  int    one_name;
-  err_t  res;
-
-  debug2 ( "\n\n>> ReadDir reason %d path %s", reason, path_name );
-  debug2 ( " offset %d count %d", dir_offset, n_names );
-  debug1 ( " buflen %d\n", buflen);
-
-  /* Make sure the number of names we read will fit into buffer */
-  one_name = (reason == FSEntry_Func_Reason_ReadDirectoryEntries) ? 16 :
-             (reason == FSEntry_Func_Reason_ReadDirectoriesAndInformation) ? 36 : 44;
-
-  if ( (n_names * one_name) > buflen ) n_names = buflen/one_name;
-  if ( n_names <= 0 ) return EBADPARAM;
-  debug1( "Adjusted count=%d\n", n_names );
-  RD_Reason = reason;
-  RD_BufPtr = buffer;
-  RD_BufLen = buflen;
-  RD_CurCount = 0;
-  RD_ReqCount = n_names;
-
-  /* Convert path adding wildcard search spec */
-  res = Xlt_ConvertPath( path_name, DOSnamebuf );
-  if ( res != OK ) return res;
-  if ( DOSnamebuf[strlen( DOSnamebuf ) - 1] != '\\' )
-    strcat( DOSnamebuf, "\\");
-  strcat( DOSnamebuf, "????????.???" );
-
-  /* Start a new search? */
-  if (dir_offset == 0)
-  {
-    debug2( ">> Start search (%s) count %d\n", DOSnamebuf, RD_ReqCount);
-    con.resume_key = 0;
-    res = SMB_ReadDirEntries ( DOSnamebuf, RD_ReqCount,
-                               Dir_CallbackFn, NULL, &con );
-  }
-  else {
-    con.resume_key = dir_offset;
-    res = OK;
-  }
-
-  /* Continue search, if needs be */
-  while ( res == OK  &&     /* More names available */
-          RD_ReqCount > 0 ) /* More names wanted */
-  {
-    debug3( ">> Continue search (%s) count %d resume %08x\n", DOSnamebuf, RD_ReqCount, con.resume_key);
-    res = SMB_ReadDirEntries ( DOSnamebuf, RD_ReqCount,
-                               Dir_CallbackFn, NULL, &con );
-  }
-
-  /* Process results */
-  if (res == EOUTOFMEM && RD_BufLen == -1) {
-    /* Special result when client buffer space exhausted */
-    debug0("Client buffer space was exhausted\n");
-    res = OK;
-  }
-  debug2("End search, res=%d RD_ReqCount=%d\n", res, RD_ReqCount);
-
-  if ( res != OK ) {  /* Ran out of files, or error */
-    *pOutNextOffset = -1;
-  }
-  else
-    *pOutNextOffset = con.resume_key;
-
-  *pOutNread = RD_CurCount;
-  if ( res == ENOMOREFILES )
-    return OK;
-
-  return res;
-}
-#endif
 
 /* Func ============================================================= */
 
@@ -327,7 +232,7 @@ _kernel_oserror *fsentry_func ( int *R )
 {
   err_t err;
 
-  debug1("FS_func(%d)", R[0] );
+  SMBDEBUG("FS_func(%d)\n", R[0] );
 
   switch ( R[0] )
   {
@@ -356,7 +261,6 @@ _kernel_oserror *fsentry_func ( int *R )
     case FSEntry_Func_Reason_RenameObject:
       err = Xlt_ConvertPath( name_R(1), DOSnamebuf);
       if ( err == OK ) err = Xlt_ConvertPath( name_R(2), DOSnamebuf+DOS_NAME_LEN );
-#ifdef LONGNAMES
       {
         DOS_ATTRIBS    da;
         RISCOS_ATTRIBS ra;
@@ -377,13 +281,11 @@ _kernel_oserror *fsentry_func ( int *R )
           }
         }
       }
-#endif
       if ( err == OK )
       {
         err = SMB_Rename ( DOSnamebuf, DOSnamebuf+DOS_NAME_LEN );
       }
 
-#ifdef LONGNAMES
       if (SMB_IsLongNameFS(DOSnamebuf + DOS_NAME_LEN))
       {
          if ( err == EBADRENAME )
@@ -398,7 +300,6 @@ _kernel_oserror *fsentry_func ( int *R )
          break;
       }
       /* Don't bother with any of this rubbish for long filename discs */
-#endif
 
       if ( err == OK )  /* If rename worked, swap attribs */
       {
@@ -444,13 +345,8 @@ _kernel_oserror *fsentry_func ( int *R )
     case FSEntry_Func_Reason_ReadDirectoryEntries:
     case FSEntry_Func_Reason_ReadDirectoriesAndInformation:
     case FSEntry_Func_Reason_ReadDirectoryEntriesAndInformation:
-#ifdef LONGNAMES
       err = Func_ReadDir1 ( R[0], name_R(1), name_R(2),
                R[3], R[4], R[5], &R[3], &R[4] );
-#else
-      err = Func_ReadDir ( R[0], name_R(1), name_R(2),
-               R[3], R[4], R[5], &R[3], &R[4] );
-#endif
       break;
 
     default:
@@ -458,9 +354,7 @@ _kernel_oserror *fsentry_func ( int *R )
       break;
   }
 
-#ifdef LONGNAMES
   NameCache_Flush(ncf_FSFUNC_EXIT);
-#endif
 
   return MsgError(err);
 }
@@ -473,7 +367,7 @@ static err_t FileGetAttribs ( char *filename, DOS_ATTRIBS *pda,
 {
   err_t err;
 
-  debug1("FileGetAttribs(%s) ... \n", filename);
+  SMBDEBUG("FileGetAttribs(%s)\n", filename);
   err = SMB_GetAttribs ( filename, pda );
   if ( err == OK )
   {
@@ -485,7 +379,7 @@ static err_t FileGetAttribs ( char *filename, DOS_ATTRIBS *pda,
 
 /* ------------------- */
 
-_kernel_oserror *fsentry_file( int *R )
+_kernel_oserror *fsentry_file( uint32_t *R )
 {
   err_t err;
   int FH;
@@ -493,7 +387,7 @@ _kernel_oserror *fsentry_file( int *R )
   DOS_ATTRIBS    da;
   RISCOS_ATTRIBS ra;
 
-  debug1("FS_file(%d)", R[0] );
+  SMBDEBUG("FS_file(%d)\n", R[0] );
 
   err = Xlt_ConvertPath ( name_R(1), DOSnamebuf );
 
@@ -520,7 +414,6 @@ _kernel_oserror *fsentry_file( int *R )
       ra.execaddr = R[3];
       ra.flags    = ROA_READ | ROA_WRITE;
       Xlt_CnvROtoDOS(&ra, &da, CNV_DATETIME | CNV_ATTRIBS );
-#ifdef LONGNAMES
       strncpy(DOSnamebuf + DOS_NAME_LEN, DOSnamebuf, DOS_NAME_LEN);
       if (Xlt_AddROType(DOSnamebuf, ra.loadaddr, ra.execaddr)) {
         /* We changed the filetype - therefore delete old file */
@@ -530,7 +423,6 @@ _kernel_oserror *fsentry_file( int *R )
            break;
         }
       }
-#endif
 
       err = SMB_Create ( DOSnamebuf, &da, &FH );
       if ( err == OK )
@@ -591,8 +483,6 @@ _kernel_oserror *fsentry_file( int *R )
       {
         ra.loadaddr = R[2];
         Xlt_CnvROtoDOS ( &ra, &da, CNV_DATETIME );
-#ifdef LONGNAMES
-      {
         if (da.attr & ATTR_DIR)
                 ;
         else {
@@ -603,8 +493,6 @@ _kernel_oserror *fsentry_file( int *R )
             strcpy(DOSnamebuf, DOSnamebuf + DOS_NAME_LEN);
           }
         }
-      }
-#endif
       }
       else if ( R[0] == FSEntry_File_Reason_WriteExecutionAddress )
       {
@@ -626,7 +514,6 @@ _kernel_oserror *fsentry_file( int *R )
       ra.execaddr = R[3];
       ra.flags = R[5];
 
-#ifdef LONGNAMES
       {
         RISCOS_ATTRIBS test_ra;
         err = FileGetAttribs ( DOSnamebuf, &da, &test_ra );
@@ -641,7 +528,6 @@ _kernel_oserror *fsentry_file( int *R )
           }
         }
       }
-#endif
 
       Xlt_CnvROtoDOS ( &ra, &da, CNV_ATTRIBS | CNV_DATETIME );
       Attr_SetInfo ( DOSnamebuf, &ra );
@@ -675,9 +561,7 @@ _kernel_oserror *fsentry_file( int *R )
       break;
 
     case FSEntry_File_Reason_CreateDirectory:
-#ifdef LONGNAMES
       Xlt_RemoveROType ( DOSnamebuf );
-#endif
       err = SMB_MkDir ( DOSnamebuf );
       break;
 
@@ -710,9 +594,7 @@ _kernel_oserror *fsentry_file( int *R )
       break;
   }
 
-#ifdef LONGNAMES
   NameCache_Flush(ncf_FSFILE_EXIT);
-#endif
 
   return MsgError(err);
 }
@@ -760,7 +642,7 @@ static int NewHandle(void)
 
 /* Open  =================================================== */
 
-_kernel_oserror *fsentry_open( int *R )
+_kernel_oserror *fsentry_open( uint32_t *R )
 {
   err_t err;
   int fid;
@@ -768,7 +650,7 @@ _kernel_oserror *fsentry_open( int *R )
   struct FileInfo *pFI;
   RISCOS_ATTRIBS ra;
 
-  debug1("FS_open(%d)", R[0]);
+  SMBDEBUG("FS_open(%d)\n", R[0]);
 
   /* Convert to DOS name & allocate handle */
 
@@ -835,17 +717,15 @@ _kernel_oserror *fsentry_open( int *R )
   else
   {
     R[1] = 0;
-#ifdef LONGNAMES
     /* Take a risk to enhance cacheing :-) */
     NameCache_Flush(ncf_FSOPEN_EXIT);
-#endif
   }
   return MsgError(err);
 }
 
 /* GetBytes  =================================================== */
 
-_kernel_oserror *fsentry_getbytes( int *R )
+_kernel_oserror *fsentry_getbytes( uint32_t *R )
 {
   int fid = R[1]-1;
 
@@ -862,7 +742,7 @@ _kernel_oserror *fsentry_getbytes( int *R )
 
 /* PutBytes  =================================================== */
 
-_kernel_oserror *fsentry_putbytes( int *R )
+_kernel_oserror *fsentry_putbytes( uint32_t *R )
 {
   int fid = R[1]-1;
 
@@ -878,7 +758,7 @@ _kernel_oserror *fsentry_putbytes( int *R )
 
 /* GBPB  =================================================== */
 
-_kernel_oserror *fsentry_gbpb( int *R )
+_kernel_oserror *fsentry_gbpb( uint32_t *R )
 {
   (void)R;
   return MsgError(ENOGBPB);
@@ -886,7 +766,7 @@ _kernel_oserror *fsentry_gbpb( int *R )
 
 /* Close  =================================================== */
 
-_kernel_oserror *fsentry_close( int *R )
+_kernel_oserror *fsentry_close( uint32_t *R )
 {
   err_t err;
   RISCOS_ATTRIBS ra;
@@ -915,7 +795,7 @@ _kernel_oserror *fsentry_close( int *R )
 
 /* Args ========================================== */
 
-static err_t WriteZeros ( int FH, uint offset, uint len )
+static err_t WriteZeros ( uint32_t FH, uint32_t offset, uint32_t len )
 {
   uint  tmp;
   err_t res=OK;
@@ -952,13 +832,13 @@ static err_t WriteZeros ( int FH, uint offset, uint len )
 
 /* --------------------- */
 
-_kernel_oserror *fsentry_args( int *R )
+_kernel_oserror *fsentry_args( uint32_t *R )
 {
   err_t err=OK;
   int fid = R[1]-1;
   uint tmp;
 
-  debug1("FS_args(%d)\n", R[0]);
+  SMBDEBUG("FS_args(%d)\n", R[0]);
 
   if ( fid < 0 || fid >= MAXFILES || FileTbl[fid].Free )
     return MsgError(EBADPARAM);
@@ -1021,7 +901,7 @@ _kernel_oserror *fsentry_args( int *R )
 
 /* Init --------------------------------- */
 
-bool FS_Init(void)
+bool FS_Init( void )
 {
   int i;
   for ( i=0; i<MAXFILES; i++ )

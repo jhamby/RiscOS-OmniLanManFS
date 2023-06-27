@@ -15,7 +15,7 @@
 /*
 *  Lan Manager client
 *
-*  Xlate.H --  DOS to RISCOS name & attrib mapping header
+*  Xlate.H -- UTF-16 to RISC OS filename & attrib mapping header
 *
 *  Versions
 *  08-03-94 INH Original
@@ -69,7 +69,6 @@ extern err_t Xlt_SetDefaultDrv ( char *path );
 extern err_t Xlt_ConvertPath ( char *RO_name_in,
                                char *DOS_name_out );
 
-#ifdef LONGNAMES
 /* Looks at the specified path/leaf name and determines if it has
  * a ,xxx type specifier on the end of it.  If it does, it returns
  * the address of the comma in the terminator parameter, and updates
@@ -90,4 +89,3 @@ extern err_t Xlt_RemoveROType ( char *name );
  * Returns 1 if it changed the filetype, 0 otherwise
  */
 extern int Xlt_AddROType ( char *leafname, uint loadaddr, uint execaddr );
-#endif

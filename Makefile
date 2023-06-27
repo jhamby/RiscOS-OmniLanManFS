@@ -16,20 +16,20 @@
 #
 
 COMPONENT    = LanManFS
-OBJS         = Xlate Transact Stats SMB RPC Printers Omni NBIP \
-               NameCache Logon LanMan CoreFn buflib Attr \
-               Interface Auth md5c md4c
+OBJS         = Interface LanManErr mbuf md4c md5c smb_subr #smb_mchain
 CINCLUDES    = ${TCPIPINC}
 HDRS         =
+ASMHDRS      = LanManErr
+ASMCHDRS     = LanManErr
 CMHGFILE     = LanMan_MH
-CMHGDEPENDS  = LanMan Logon NBIP Omni
-LIBS         = ${NET5LIBS} ${ASMUTILS}
+CMHGDEPENDS  = LanMan Logon Omni
+LIBS         = ${NET5LIBS} ${ASMUTILS} ${SYNCLIB}
 RES_PATH     = ThirdParty.OmniClient
-CDEFINES     = -DLONGNAMES -DNO_NETBEUI ${OPTIONS}
+CDEFINES     = -DKERNEL ${OPTIONS}
 CFLAGS       = ${C_NOWARN_NON_ANSI_INCLUDES}
-CDFLAGS      = -DDEBUG -DDEBUGLIB -DTRACE -Dprintf=module_printf
+CDFLAGS      = -DDEBUG -DDEBUGLIB -DSMB_DEBUG -DNB_DEBUG
 ROMCDEFINES  = -DROM
-CMHGDEFINES  = -DNO_NETBEUI ${OPTIONS}
+CMHGDEFINES  = ${OPTIONS}
 ifeq ("${CMDHELP}","None")
 CMHGDEFINES += -DNO_INTERNATIONAL_HELP
 endif
@@ -39,6 +39,11 @@ RESDIR       = ${MERGEDRDIR}
 OBJS        += ${RES_OBJ}
 INSTRES_FILES = ROM.Sprites
 INSTRES_VERSION = Messages
+
+# Note: without setting EXP_HDR below, the ASM2TXT rule wasn't creating .hdr,
+# which prevented "hdr.LanManErr", and therefore "h.LanManErr", from building.
+ASM2TXT      = LanManErr hdr
+EXP_HDR      = hdr
 
 include CModule
 

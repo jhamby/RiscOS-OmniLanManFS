@@ -1,0 +1,103 @@
+/*
+ * Copyright (c) 2006 - 2010 Apple Inc. All rights reserved.
+ *
+ * @APPLE_LICENSE_HEADER_START@
+ *
+ * This file contains Original Code and/or Modifications of Original Code
+ * as defined in and that are subject to the Apple Public Source License
+ * Version 2.0 (the 'License'). You may not use this file except in
+ * compliance with the License. Please obtain a copy of the License at
+ * http://www.opensource.apple.com/apsl/ and read it before using this
+ * file.
+ *
+ * The Original Code and all software distributed under the License are
+ * distributed on an 'AS IS' basis, WITHOUT WARRANTY OF ANY KIND, EITHER
+ * EXPRESS OR IMPLIED, AND APPLE HEREBY DISCLAIMS ALL SUCH WARRANTIES,
+ * INCLUDING WITHOUT LIMITATION, ANY WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE, QUIET ENJOYMENT OR NON-INFRINGEMENT.
+ * Please see the License for the specific language governing rights and
+ * limitations under the License.
+ *
+ * @APPLE_LICENSE_HEADER_END@
+ */
+
+#ifndef _SMB_BYTEORDER_H_
+#define _SMB_BYTEORDER_H_
+
+#if defined(__APPLE__) && defined(__MACH__)
+#include <libkern/OSByteOrder.h>
+
+#define htoles(x)   (OSSwapHostToLittleInt16(x))
+#define letohs(x)   (OSSwapLittleToHostInt16(x))
+#define htolel(x)   (OSSwapHostToLittleInt32(x))
+#define letohl(x)   (OSSwapLittleToHostInt32(x))
+#define htoleq(x)   (OSSwapHostToLittleInt64(x))
+#define letohq(x)   (OSSwapLittleToHostInt64(x))
+
+#define htobes(x)   (OSSwapHostToBigInt16(x))
+#define betohs(x)   (OSSwapBigToHostInt16(x))
+#define htobel(x)   (OSSwapHostToBigInt32(x))
+#define betohl(x)   (OSSwapBigToHostInt32(x))
+#define htobeq(x)   (OSSwapHostToBigInt64(x))
+#define betohq(x)   (OSSwapBigToHostInt64(x))
+#else
+#include <machine/endian.h>
+
+/* Copied from xnu/libkern/libkern/_OSByteOrder.h */
+/* Macros for swapping constant values in the preprocessing stage. */
+#define DARWIN_OSSwapConstInt16(x) \
+    ((uint16_t)((((uint16_t)(x) & 0xff00) >> 8) | \
+                (((uint16_t)(x) & 0x00ff) << 8)))
+
+#define DARWIN_OSSwapConstInt32(x) \
+    ((uint32_t)((((uint32_t)(x) & 0xff000000) >> 24) | \
+                (((uint32_t)(x) & 0x00ff0000) >>  8) | \
+                (((uint32_t)(x) & 0x0000ff00) <<  8) | \
+                (((uint32_t)(x) & 0x000000ff) << 24)))
+
+#define DARWIN_OSSwapConstInt64(x) \
+    ((uint64_t)((((uint64_t)(x) & 0xff00000000000000ULL) >> 56) | \
+                (((uint64_t)(x) & 0x00ff000000000000ULL) >> 40) | \
+                (((uint64_t)(x) & 0x0000ff0000000000ULL) >> 24) | \
+                (((uint64_t)(x) & 0x000000ff00000000ULL) >>  8) | \
+                (((uint64_t)(x) & 0x00000000ff000000ULL) <<  8) | \
+                (((uint64_t)(x) & 0x0000000000ff0000ULL) << 24) | \
+                (((uint64_t)(x) & 0x000000000000ff00ULL) << 40) | \
+                (((uint64_t)(x) & 0x00000000000000ffULL) << 56)))
+
+#if BYTE_ORDER == LITTLE_ENDIAN
+
+#define htoles(x)   (x)
+#define letohs(x)   (x)
+#define htolel(x)   (x)
+#define letohl(x)   (x)
+#define htoleq(x)   (x)
+#define letohq(x)   (x)
+
+#define htobes(x)   (DARWIN_OSSwapConstInt16(x))
+#define betohs(x)   (DARWIN_OSSwapConstInt16(x))
+#define htobel(x)   (DARWIN_OSSwapConstInt32(x))
+#define betohl(x)   (DARWIN_OSSwapConstInt32(x))
+#define htobeq(x)   (DARWIN_OSSwapConstInt64(x))
+#define betohq(x)   (DARWIN_OSSwapConstInt64(x))
+
+#else
+
+#define htoles(x)   (DARWIN_OSSwapConstInt16(x))
+#define letohs(x)   (DARWIN_OSSwapConstInt16(x))
+#define htolel(x)   (DARWIN_OSSwapConstInt32(x))
+#define letohl(x)   (DARWIN_OSSwapConstInt32(x))
+#define htoleq(x)   (DARWIN_OSSwapConstInt64(x))
+#define letohq(x)   (DARWIN_OSSwapConstInt64(x))
+
+#define htobes(x)   (x)
+#define betohs(x)   (x)
+#define htobel(x)   (x)
+#define betohl(x)   (x)
+#define htobeq(x)   (x)
+#define betohq(x)   (x)
+
+#endif
+
+#endif  /* __APPLE__ && __MACH__ */
+#endif  /* !_SMB_BYTEORDER_H_ */

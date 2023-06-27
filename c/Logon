@@ -327,7 +327,7 @@ _kernel_oserror *Lgn_LogonOp_SWI ( _kernel_swi_regs *R )
 {
   err_t res;
 
-  debug1(" Omni Op(%d):", R->r[0]);
+  SMBDEBUG(" Omni Op(%d):\n", R->r[0]);
 
 #define Rin_int(a)   (R->r[a])
 #define Rout_int(a) &(R->r[a])

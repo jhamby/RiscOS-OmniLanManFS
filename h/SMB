@@ -21,65 +21,16 @@
 *
 */
 
-#define DIRENTRY_SIZE 22
-
-typedef err_t (*ENUM_DIR_FN) ( BYTE *entry, int format, bool *taken, void *private );
-
 struct disk_size_response
 {
-  uint blksize;
-  uint freeblks;
-  uint totalblks;
+  uint32_t blksize;
+  uint32_t freeblks;
+  uint32_t totalblks;
 };
 
 #define MODE_RD   0x20  /* Read, deny write to others */
 #define MODE_WR   0x11  /* Write, deny read/write to others */
 #define MODE_RDWR 0x12  /* Read/Write, deny read/write to others */
-
-#ifdef LONGNAMES
-/* Note.  As per the June 19 1990 document (doc vsn 1.11, prot vsn 3.0),
- * the maximum value for this needs to be 4 + (maximum route name length
- * + 2)/2 for the TRANSACT2_FSCTL call (6.0.1.1.10, page 41).  However,
- * TRANSACT2_IOCTL needs this to be 4 too, so it is left at four for the
- * moment.  You will get a debug output message if you try to add too
- * many setup words.
- */
-#define MAX_SETUPWORDS	(4)
-#endif
-
-struct TransactParms
-{
-  int   parms_in_len;
-  BYTE *parms_in;
-  int   data_in_len;
-  BYTE *data_in;
-
-  int   parms_out_maxlen;
-  BYTE *parms_out_buf;
-  int   parms_out_len;
-
-  int   data_out_maxlen;
-  BYTE *data_out_buf;
-  int   data_out_len;
-#ifdef LONGNAMES
-  /* WARNING:  These fields MUST lie at the end because LanManFS provides
-   *           a SWI call which takes a pointer to one of these structures.
-   *           The user structure is now copied to a local variable, the
-   *           size of which is given by the #define just below.
-   */
-  int   setup_in_len;
-  WORD  setup_in[MAX_SETUPWORDS];
-  int   setup_out_len;
-  int   setup_out_maxlen;
-  WORD  setup_out[MAX_SETUPWORDS];
-#endif
-};
-
-#ifdef LONGNAMES
-#  define sizeof_TransactParms_external (offsetof(struct TransactParms, setup_in_len))
-#else
-#  define sizeof_TransactParms_external (sizeof(struct TransactParms))
-#endif
 
 /* Directory functions */
 extern err_t SMB_MkDir ( char *path );
@@ -125,6 +76,7 @@ extern err_t SMB_CreateShare ( int service_type,
                         char *serv_name, char *drv_name,
                         char *user_name, char *passwd,
                         char *share_lettr_out );
+
 #define SHR_DISK    0
 #define SHR_PRINTER 1
 #define SHR_COMM    2
@@ -205,60 +157,7 @@ extern const char *SMB_GetConnInfo ( char drvlettr, int type );
 /* Test if we're connected to a given server */
 extern bool SMB_ConnectedTo ( char *server );
 
-/* Implement idle out protection for broken Microsoft servers */
-#ifdef SMB1_OLD_ANTI_IDLE
-extern void SMB_AntiIdle ( void );
-#endif
-
-/* Timeouts * */
-
-/* Reply timeout, in cs */
-
-#ifdef LONGNAMES
-#define REPLY_TIMEOUT 4000
-#else
-#define REPLY_TIMEOUT 1200
-#endif
-
-/* Timeout to put in 'Transact' params, in ms */
-
-#define TRANSACT_TIMEOUT 5000
-#ifdef LONGNAMES
-#define TRANSACT2_TIMEOUT 10000
-#endif
-
 /* Startup/shutdown */
 
 extern bool  SMB_Init(void);
 extern err_t SMB_Shutdown ( void );
-
-/* SMB_WorkBuf **** */
-
-/* This is a temporary buffer, made public on the following strict
-   conditions:
-
-   (i) Its contents may become corrupted across any SMB_xxxx calls.
-       The main exception is the SMB_Transact call: this buffer is
-       intended for use as the return parameter/data buffer.
-
-   (ii) It must not be used by anything which may be called during
-        an SMB call (transmit/receive processing functions, timer
-        callbacks, SMB_EnumerateDir callbacks etc). This probably
-        means anything in Network, LLC, and NetBIOS.
-
-   (iii) Any other C source file may use it freely. In
-         general, it should be assumed corrupted across calls
-         between modules.
-*/
-#ifdef LONGNAMES
-/* Need a much larger buffer */
-#define SMBWORKBUF_SIZE 16384
-#define SMBXMITMEM_SIZE SMBWORKBUF_SIZE
-#else
-#define SMBWORKBUF_SIZE 1500
-#endif
-extern BYTE SMB_WorkBuf[SMBWORKBUF_SIZE];
-
-#ifdef LONGNAMES
-extern bool SMB_IsLongNameFS( const char * path);
-#endif

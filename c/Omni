@@ -329,8 +329,8 @@ static err_t DoCLIop ( char *command, int mount_id )
   if ( pNL == NULL )
     return EBADPARAM;
 
-  sprintf( name_buf, FilingSystemName "::%s", pNL->name );
-  sprintf( work_buf, command, name_buf );
+  snprintf( name_buf, sizeof(name_buf), FilingSystemName "::%s", pNL->name );
+  snprintf( work_buf, sizeof(work_buf), command, name_buf );
   R.r[0] = (int) work_buf;
   return MsgSetOSError( _kernel_swi ( XOS_Bit | OS_CLI, &R, &R ));
 }
@@ -393,10 +393,7 @@ static err_t BootMount ( NAMELIST *pNLmount )
      return OK;
   }
 
-
-#ifdef TRACE
-  debug1("BootMount looking for %s\n", work_buf);
-#endif
+  SMBDEBUG("BootMount looking for %s\n", work_buf);
 
   /* If no such file or directory, we can stop now */
 #ifdef CHECK_ARMBOOT_EXISTS
@@ -438,45 +435,25 @@ static err_t BootMount ( NAMELIST *pNLmount )
 err_t Omni_MountServer ( char *servname, char *userID, char *passwd,
          char *mountname, char *mountpath, int *mount_id_out )
 {
-  err_t res;
-  char namebuf[NAME_LIMIT];
-  NAMELIST *pNLmount, *pNLsrv;
-
-  *mount_id_out = 0;
-
-#ifdef TRACE
-  debug3("Omni_MountServer: %p %p %p\n", mountname, servname, mountpath);
-#endif
+  /* Don't log the password string! */
+  SMBDEBUG("Omni_MountServer( \"%s\", \"%s\", 0x%p, \"%s\", "\"%s\", id )\n",
+           servname, userID, passwd, mountname, mountpath);
 
   if ( mountname == NULL || servname == NULL || mountpath == NULL )
     return EBADPARAM;
 
-  MountNameCpy ( namebuf, mountname );
+  /* TODO: Check for mount with same name */
 
-  /* Check for mount with same name */
+  /* TODO: Connect or amend connection details */
 
-  pNLmount = AddToList ( &MountsList, (int)M_VALID_TAG, namebuf );
-
-  if ( pNLmount == NULL )    /* Out of memory -oops! */
-    return ECONNLIMIT;
-
-  if ( pNLmount->u.mount.connected != 0 )
-  {
-    /* Mount name exists - delete it so we can reuse it */
-    SMB_DeleteShare (pNLmount->u.mount.smb_lettr);
-  }
-
-  /* Connect or amend connection details */
-
+#if 0
   res = SMB_CreateShare ( SHR_DISK, CREATE_NEW_USER | CREATE_NEW_SHARE,
               servname, mountpath, userID, passwd,
               &(pNLmount->u.mount.smb_lettr) );
 
   if ( res != OK ) /* Didn't work. Forget it */
   {
-#ifdef TRACE
-    debug0("SMB_CreateShare failed\n");
-#endif
+    SMBDEBUG("SMB_CreateShare failed\n");
     DeleteFromList ( &MountsList, pNLmount );
     return res;
   }
@@ -497,11 +474,12 @@ err_t Omni_MountServer ( char *servname, char *userID, char *passwd,
   {
     pNLmount->u.mount.diskname  = NULL;
   }
+#endif
 
   /* Indicate success to !Omni. This is now independent of whether we
      return an error or not */
 
-  *mount_id_out = (int) (pNLmount);
+  *mount_id_out = (int) (0xabad1dea);   /* FIXME */
 
   /* The connection to the server might have changed & new browse
       info might be available */
@@ -526,7 +504,9 @@ err_t Omni_DismountServer ( int mount_id )
   /* Disregard errors! Disconnect anyway! */
 
   DoCLIop ("Filer_CloseDir %s.$", mount_id );
-  SMB_DeleteShare (pNL->u.mount.smb_lettr);
+
+  /* TODO: SMB_DeleteShare (pNL->u.mount.smb_lettr); */
+
   DeleteFromList(&MountsList, pNL);
   return OK;
 }
@@ -576,7 +556,7 @@ static err_t Omni_FreeSpace ( int mount_id,
 /* Omni_FreeSpace64() ------------------------------*/
 /* Does XXXX_OmniOp 4 */
 static err_t Omni_FreeSpace64 ( int mount_id, int *success,
-       QWORD *freespace_out, QWORD *usedspace_out, QWORD *totspace_out )
+       uint64_t *freespace_out, uint64_t *usedspace_out, uint64_t *totspace_out )
 {
   struct disk_size_response DSR;
   err_t res;
@@ -586,11 +566,11 @@ static err_t Omni_FreeSpace64 ( int mount_id, int *success,
   if ( res != OK )
     return res;
 
-  /* DWORD*DWORD => QWORD result */
-  *freespace_out = (QWORD)DSR.freeblks * DSR.blksize;
-  *totspace_out = (QWORD)DSR.totalblks * DSR.blksize;
+  /* uint32_t * uint32_t => uint64_t result */
+  *freespace_out = (uint64_t)DSR.freeblks * DSR.blksize;
+  *totspace_out = (uint64_t)DSR.totalblks * DSR.blksize;
   used = DSR.totalblks - DSR.freeblks;
-  *usedspace_out = (QWORD)used * DSR.blksize;
+  *usedspace_out = (uint64_t)used * DSR.blksize;
   *success = 0;
 
   return OK;
@@ -716,7 +696,6 @@ static err_t Omni_ListMounts (
   NAMELIST *pNLdisk;
   char *next_byte_written;
 
-
   /* If token_in is non-NULL, we're in the middle */
 
   if ( token_in != 0 )
@@ -791,7 +770,6 @@ static err_t Omni_ListActiveMounts ( char *buf_ptr, int buf_size,
 
   char *next_byte_written;
   NAMELIST *pNL;
-
 
   if ( token_in == 0 )
     pNL = MountsList;
@@ -1054,7 +1032,7 @@ _kernel_oserror *OmniOp_SWI ( _kernel_swi_regs *R )
 {
   err_t res;
 
-  debug1(" Omni Op(%d):", R->r[0]);
+  SMBDEBUG(" Omni Op(%d):\n", R->r[0]);
 
 #define Rin_int(a)   (R->r[a])
 #define Rout_int(a) &(R->r[a])
@@ -1090,21 +1068,21 @@ _kernel_oserror *OmniOp_SWI ( _kernel_swi_regs *R )
       break;
 
     case 4:  /* Enumerate mounts */
-      res = Omni_ListMounts  ( Rin_chr(1),
-                               Rin_int(2),
-                               Rin_int(3),
-                               Rin_int(4),
-                               Rin_chr(5),
-                               Rout_chr(1),
-                               Rout_int(3) );
+      res = Omni_ListMounts ( Rin_chr(1),
+                              Rin_int(2),
+                              Rin_int(3),
+                              Rin_int(4),
+                              Rin_chr(5),
+                              Rout_chr(1),
+                              Rout_int(3) );
       break;
 
     case 5:  /* Enumerate active mounts */
-      res = Omni_ListActiveMounts  ( Rin_chr(1),
-                               Rin_int(2),
-                               Rin_int(3),
-                               Rout_chr(1),
-                               Rout_int(3) );
+      res = Omni_ListActiveMounts ( Rin_chr(1),
+                                    Rin_int(2),
+                                    Rin_int(3),
+                                    Rout_chr(1),
+                                    Rout_int(3) );
       break;
 
     case 6:  /* Open root of mount */
@@ -1132,28 +1110,28 @@ _kernel_oserror *OmniOp_SWI ( _kernel_swi_regs *R )
       break;
 
     case 10: /* Create print job */
-      res = Prn_CreateJob ( Rin_chr(1),  /* Server name */
-                            Rin_chr(2),  /* Printer name */
-                            Rin_chr(3),  /* User name */
-                            Rin_chr(4),  /* Password */
+      res = Prn_CreateJob ( Rin_chr(1),   /* Server name */
+                            Rin_chr(2),   /* Printer name */
+                            Rin_chr(3),   /* User name */
+                            Rin_chr(4),   /* Password */
                             Rout_int(1)); /* Job handle */
       break;
 
     case 11: /* Send to print job */
-      res = Prn_WriteData ( Rin_int(1), /* Job ID */
-                            Rin_chr(2), /* data pointer */
+      res = Prn_WriteData ( Rin_int(1),   /* Job ID */
+                            Rin_chr(2),   /* data pointer */
                             Rin_int(3) ); /* Data length */
 
       if ( res == OK ) R->r[3] = 0;
       break;
 
     case 12: /* End print job */
-      res = Prn_CloseJob ( Rin_int(1), /* Job ID */
+      res = Prn_CloseJob ( Rin_int(1),    /* Job ID */
                            false );
       break;
 
     case 13: /* Abort print job */
-      res = Prn_CloseJob ( Rin_int(1), /* Job ID */
+      res = Prn_CloseJob ( Rin_int(1),    /* Job ID */
                            true );
       break;
 
@@ -1165,7 +1143,7 @@ _kernel_oserror *OmniOp_SWI ( _kernel_swi_regs *R )
 
 
     case 15: /* Clear print job */
-      res = Prn_ClearJob ( Rin_int(1) ); /* Job ID */
+      res = Prn_ClearJob ( Rin_int(1) );  /* Job ID */
       break;
 
     case 16: /* Enumerate printers */
@@ -1263,9 +1241,9 @@ _kernel_oserror *Omni_FreeOp_SWI (_kernel_swi_regs *R )
 
         return MsgError ( Omni_FreeSpace64 ( m_id,
            (int *)&(R->r[0]),       /* zero it on success */
-           (QWORD *)(R->r[2]+8)  /* freespace_out */,
-           (QWORD *)(R->r[2]+16) /* usedspace_out */,
-           (QWORD *)(R->r[2]+0)  /* totspace_out */ ) );
+           (uint64_t *)(R->r[2]+8)  /* freespace_out */,
+           (uint64_t *)(R->r[2]+16) /* usedspace_out */,
+           (uint64_t *)(R->r[2]+0)  /* totspace_out */ ) );
       }
 
     default:
@@ -1287,7 +1265,7 @@ void Omni_RecheckInfo( int flags )
   if ( Omni_Registered )
   {
     R.r[0] = LanMan_OmniOp; /* Client ID */
-    R.r[1] = flags;  /* Enumerate servers/mounts */;
+    R.r[1] = flags;         /* Enumerate servers/mounts */;
     _kernel_swi ( SWI_Omni_EnumerateMounts, &R, &R );
   }
 }
@@ -1298,14 +1276,13 @@ static void Omni_Register(void)
   char titlebar[24];  /* Title bar - 24 max */
   char infobox[3*32]; /* Info box - 3x32 max */
 
-  strcpy( titlebar, MsgLookup("_Version") ); /* Temp copy */
-  sprintf( infobox, "%s\n"
+  strlcpy( titlebar, MsgLookup("_Version"), sizeof(titlebar) ); /* Temp copy */
+  snprintf( infobox, sizeof(infobox), "%s\n"
                     "\xA9 Acorn Computers Ltd, 1997\n"
                     "%s",
-                    ( Stat_ClassMask & SCLASS_IP ) ? MsgLookup("WhoTCPIP")
-                                                   : MsgLookup("WhoBEUI"),
+                    MsgLookup("WhoTCPIP"),
                     titlebar );
-  strncpy( titlebar, MsgLookup("DispName"), sizeof(titlebar) );
+  strlcpy( titlebar, MsgLookup("DispName"), sizeof(titlebar) );
 
   if ( _swix( SWI_Omni_RegisterClient, _INR(0,6),
               LanMan_OmniOp, /* Client ID */
@@ -1518,7 +1495,7 @@ _kernel_oserror *Omni_DumpServers(void)
 static void Omni_DumpSharesPrint(NAMELIST *pNL, const char *type)
 {
   for (; pNL != NULL; pNL = pNL->next) {
-    printf("  %-16s  %-10s  %s\n", pNL->name, type, pNL->u.share.info_string);
+    dprintf("  %-16s  %-10s  %s\n", pNL->name, type, pNL->u.share.info_string);
   }
 }
 
@@ -1526,7 +1503,7 @@ static void Omni_DumpSharesPrint(NAMELIST *pNL, const char *type)
 static void Omni_DumpServersPrint(NAMELIST *pNL)
 {
   for (; pNL != NULL; pNL = pNL->next) {
-    printf("  %-16s  %s\n", pNL->name, pNL->u.server.info_string);
+    dprintf("  %-16s  %s\n", pNL->name, pNL->u.server.info_string);
   }
 }
 
@@ -1583,9 +1560,9 @@ _kernel_oserror *Omni_DumpShares(char *server_name)
 static void showname ( NAMELIST *pNL )
 {
   if ( pNL == NULL )
-    printf("%s ", MsgLookup("NoUser"));
+    dprintf("%s ", MsgLookup("NoUser"));
   else
-    printf("'%s' ", pNL->name);
+    dprintf("'%s' ", pNL->name);
 }
 
 static void showlist ( NAMELIST *pNL )
@@ -1607,55 +1584,55 @@ void Omni_Debug ( void )
 
   sprintf(fmt, "%%-%ds : %%s\n", strlen(MsgLookup("NameL")));
 
-  printf(fmt, MsgLookup("NameH"), LM_Vars.machinename);
-  printf(fmt, MsgLookup("NameD"), LM_Vars.drivername);
+  dprintf(fmt, MsgLookup("NameH"), LM_Vars.machinename);
+  dprintf(fmt, MsgLookup("NameD"), LM_Vars.drivername);
   sprintf(temp, "%d", LM_Vars.namemode);
-  printf(fmt, MsgLookup("NameM"), temp);
+  dprintf(fmt, MsgLookup("NameM"), temp);
   strcpy(temp, Omni_Registered ? MsgLookup("Start")
                                : MsgLookup("NotStart"));
-  printf(fmt, MsgLookup("NameO"), temp);
+  dprintf(fmt, MsgLookup("NameO"), temp);
   strcpy(temp, LM_Vars.logged_on ? LM_Vars.workgroup
                                  : MsgLookup("NotLogon"));
-  printf(fmt, MsgLookup("NameW"), temp);
+  dprintf(fmt, MsgLookup("NameW"), temp);
 
   if ( LM_Vars.logged_on )
   {
     /* Extra info for a logged on domain */
-    printf(fmt, MsgLookup("NameU"), LM_Vars.username);
+    dprintf(fmt, MsgLookup("NameU"), LM_Vars.username);
 
     if ( Lgn_PrimaryDCName[0] != 0 )
     {
-      printf(fmt, MsgLookup("NameP"), Lgn_PrimaryDCName);
+      dprintf(fmt, MsgLookup("NameP"), Lgn_PrimaryDCName);
     }
 
     strcpy(temp, MsgLookup("NoHome"));
-    printf(fmt, MsgLookup("NamHD"), (Lgn_HomeDirName[0] != 0) ? Lgn_HomeShareName
+    dprintf(fmt, MsgLookup("NamHD"), (Lgn_HomeDirName[0] != 0) ? Lgn_HomeShareName
                                                               : temp);
     if ( Lgn_HomeDirName[0] != 0 )
     {
-      printf(fmt, MsgLookup("NamHS"), Lgn_HomeServerName);
-      printf(fmt, MsgLookup("NamHP"), Lgn_HomeDirName);
+      dprintf(fmt, MsgLookup("NamHS"), Lgn_HomeServerName);
+      dprintf(fmt, MsgLookup("NamHP"), Lgn_HomeDirName);
     }
   }
 
   for ( pNL = ServerList; pNL != NULL; pNL = pNL->next )
   {
-    printf("\n%s '%s': '%s'", MsgLookup("Serv"), pNL->name,
+    dprintf("\n%s '%s': '%s'", MsgLookup("Serv"), pNL->name,
            pNL->u.server.info_string);
-    printf("\n  %s : ", MsgLookup("Drvs"));
+    dprintf("\n  %s : ", MsgLookup("Drvs"));
     showlist(pNL->u.server.known_disks);
-    printf("\n  %s : ", MsgLookup("Prns"));
+    dprintf("\n  %s : ", MsgLookup("Prns"));
     showlist(pNL->u.server.known_printers);
   }
-  if (ServerList != NULL) printf("\n");
+  if (ServerList != NULL) dprintf("\n");
 
   for ( pNL = MountsList; pNL != NULL; pNL = pNL->next )
   {
-    printf("\n%s '%s': ", MsgLookup("Mnt"), pNL->name);
+    dprintf("\n%s '%s': ", MsgLookup("Mnt"), pNL->name);
     showname( pNL->u.mount.diskname );
-    printf("%s ", MsgLookup("On"));
+    dprintf("%s ", MsgLookup("On"));
     showname( pNL->u.mount.servername );
-    printf("%s '%s'",
+    dprintf("%s '%s'",
             MsgLookup("User"),
             SMB_GetConnInfo ( pNL->u.mount.smb_lettr, GCI_USER ) );
   }
@@ -1665,11 +1642,11 @@ void Omni_Debug ( void )
   {
     int i;
 
-    printf("\n");
+    dprintf("\n");
     for ( i='A'; i <= 'Z'; i++ )
       if ( SMB_GetConnInfo(i, GCI_SERVER) != NULL )
       {
-        printf("Connection %c: %s share on \\\\%s\\%s, user %s\n",
+        dprintf("Connection %c: %s share on \\\\%s\\%s, user %s\n",
           i, SMB_GetConnInfo(i, GCI_SHARETYPE),
              SMB_GetConnInfo(i, GCI_SERVER),
              SMB_GetConnInfo(i, GCI_SHARE),
@@ -1680,7 +1657,7 @@ void Omni_Debug ( void )
 
   if ( RPC_ErrorCount > 0 )
   {
-    printf("\n%d %s\n", RPC_ErrorCount, MsgLookup("LocProb"));
-    printf("%s - %s\n", MsgLookup("LocDesc"), RPC_DebugMsg);
+    dprintf("\n%d %s\n", RPC_ErrorCount, MsgLookup("LocProb"));
+    dprintf("%s - %s\n", MsgLookup("LocDesc"), RPC_DebugMsg);
   }
 }

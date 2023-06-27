@@ -26,20 +26,19 @@
 #include <string.h>
 #include <stdlib.h>
 #include <ctype.h>
+#include <stdint.h>
+
 #include "swis.h"
 #include "Interface/MimeMap.h"
 
 #include "stdtypes.h"
 #include "LanMan.h"
 #include "Xlate.h"
-#include "Attr.h"
 #include "Omni.h"
 #include "LMVars.h"
 #include "SMB.h"
-#include "Transact.h"
 #include "NameCache.h"
 
-#ifdef LONGNAMES
 #define FileChar_TypedNamePrefix        ','
 #define FileChar_UntypedNameSep         '-'
 #define FileString_DeadFile             "xxx"
@@ -49,7 +48,6 @@
  * for example, when writing a new file
  */
 static const int deaddead = (int)0xDEADDEAD;
-#endif
 
 /* Macro returns non-zero if the specific load address is indicative of
  * a filetyped object.   Rather than checking for the top 12 bits being
@@ -186,9 +184,9 @@ static uint DMYtoUtime ( int dtime, int ddate )
   hrs = (dtime >> 11) & 31;
 
   /*
-  debug2("%08x %08x => ", dtime, ddate);
-  debug3("HH:MM:SS => %02d:%02d:%02d   ", hrs, min, sec);
-  debug3("DD:MM:YY => %02d:%02d:%04d \n", dd, mm, yy + 1980);
+  SMBDEBUG("%08x %08x => ", dtime, ddate);
+  SMBDEBUG("HH:MM:SS => %02d:%02d:%02d   ", hrs, min, sec);
+  SMBDEBUG("DD:MM:YY => %02d:%02d:%04d \n", dd, mm, yy + 1980);
   */
 
   /* Calc. no. of days since 1-1-70 */
@@ -347,133 +345,405 @@ void Xlt_Unjumble ( char *str )
 
 /* Name conversion, etc =========================================== */
 
-static char Xlt_DefaultDrv = 'A';
+/* Character translation tables. */
 
-/* Wildcards, it seems, are not in fact used:
-   A 'delete' operation reads directory entries
-   first, and passes us individual filenames to
-   delete. A 'rename' operation tries to do a
-   'get file info' function on the wildcarded
-   filename, then complains when it fails. ADFS
-   doesn't allow wildcarded renames (although it
-   does allow "move to new directory" renames), so
-   we won't either. This means we can dispense with
-   all wildcards in filenames.
-*/
+/* CH_ERR returns error for unexpected characters (to catch bugs).
+ * Certain other characters are swapped by RISC OS convention,
+ * while others can be swapped between RISC OS 8-bit and UTF-16.
+ *
+ * CH_ENC encodes Unicode values in 0x00-0xff that have to be
+ * Base64 encoded due to being illegal chars in FileSwitch.
+ */
 
-/* Character translate table ------------- */
-
-#define CH_END  0
-#define CH_ERR  1
-#define CH_WILD 2
-#define CH_PATH 3
-#define CH_SEP  4
-#define CH_DUD '_'
+#define CH_ERR  0
+#define CH_ENC  1
 
 /*
-  Illegal in DOS names:    SPACE / < > ? + , ; = [ ] : * \ " | DEL
-  Illegal in RISCOS names: SPACE . $ ^ # &   % @     : * \ " | DEL
-  Additionally:
-    All control characters are bad
-    All top bit set characters are swapped for _
+  All low control chars including newline (0x0A) and CR (0x0D)
+  are flagged as errors, since they aren't legal chars on the
+  SMB end, and are likely an indication of buggy code on the
+  RISC OS filename side. 0x80-0xFF are converted from RISC OS
+  8-bit encoding (0x81-0x9F is not Windows-1252) to UTF-16, and
+  the Services For Macintosh (SFM) mapping is used for chars
+  such as '?' that are typically disallowed in SMB filenames.
+
+  This table (ROFTF-8) is for filename encoding and swaps
+  '.' and '/', along with encoding special filename chars.
+  The table below it (ROTF-8) is similar but without filename
+  special handling (for usernames, share names, etc.).
 */
-static const char xlt_RO2DOS[256] =
+static const uint16_t ROFTF8_to_SMB16[256] =
 {
-  CH_END, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, /* 00-07 */
-  CH_ERR, CH_ERR, CH_END, CH_ERR, CH_ERR, CH_END, CH_ERR, CH_ERR, /* 08-0F */
+  CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, /* 00-07 */
+  CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, /* 08-0F */
+
   CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, /* 10-17 */
-  CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, /* 17-1F */
+  CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, /* 18-1F */
 
-/* SPACE   !       "       #       $       %       &       '         20-27 */
-  CH_ERR, '!',    CH_ERR, CH_WILD,CH_ERR, CH_ERR, CH_ERR, '\'',
-/* (       )       *       +       ,       -       .       /         28-2F */
-  '(',    ')',    CH_WILD,'&',    CH_ERR, '-',    CH_PATH,CH_SEP,
-/* 0       1       2       3       4       5       6       7         30-37 */
-  '0',    '1',    '2',    '3',    '4',    '5',    '6',    '7',
-/* 8       9       :       ;       <       =       >       ?         38-3F */
-  '8',    '9',    CH_ERR, '%',    '$',    '@',    '^',    '#',
-/* @       A       B       C       D       E       F       G         40-47 */
-  CH_ERR, 'A',    'B',    'C',    'D',    'E',    'F',    'G',
-  'H',    'I',    'J',    'K',    'L',    'M',    'N',    'O',
-  'P',    'Q',    'R',    'S',    'T',    'U',    'V',    'W',
-/* X       Y       Z       [       \       ]       ^       _         58-5F */
-  'X',    'Y',    'Z',    CH_ERR, CH_ERR, CH_ERR, CH_ERR, '_',
-/* `       a       b       c       d       e       f       g         60-67 */
-  '`',    'A',    'B',    'C',    'D',    'E',    'F',    'G',
-  'H',    'I',    'J',    'K',    'L',    'M',    'N',    'O',
-  'P',    'Q',    'R',    'S',    'T',    'U',    'V',    'W',
-/* x       y       z       {       |       }       ~       DEL       78-7F */
-  'X',    'Y',    'Z',    '{',    CH_ERR, '}',    '~',    CH_ERR,
+  /* [ !"#$%&'()*+,-./] (swap '.' and '/'; RISC OS wildcards '*' and '#',
+                         plus '$', '%', '&', and '"', are errors) */
+  0x20, 0x21, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, 0x27,       /* 20-27 */
+  0x28, 0x29, CH_ERR, 0x2B,   0x2C,   0x2D,   0x2F,   0x2E,       /* 28-2F */
 
-  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
-  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
-  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
-  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
+  /* [0123456789:;<=>?] ('<', '>', and '?' become 0xF023, 0xF024, and
+                         0xF025, like SFM; ':' is an error on both) */
+  0x30, 0x31, 0x32,   0x33, 0x34,   0x35, 0x36,   0x37,           /* 30-37 */
+  0x38, 0x39, CH_ERR, 0x3B, 0xF023, 0x3D, 0xF024, 0xF025,         /* 38-3F */
 
-  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
-  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
-  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
-  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
+  /* [@ABCDEFGHIJKLMNO] ('@' is an error for RISC OS) */
+  CH_ERR, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47,               /* 40-47 */
+  0x48,   0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E, 0x4F,               /* 48-4F */
 
-  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
-  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
-  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
-  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
+  /* [PQRSTUVWXYZ[\]^_] ('\' is error for both; '^' is error for RISC OS) */
+  0x50, 0x51, 0x52, 0x53, 0x54,   0x55, 0x56,   0x57,             /* 50-57 */
+  0x58, 0x59, 0x5A, 0x5B, CH_ERR, 0x5D, CH_ERR, 0x5F,             /* 58-5F */
 
-  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
-  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
-  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
-  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD
+  /* [`abcdefghijklmno] */
+  0x60, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67,                 /* 60-67 */
+  0x68, 0x69, 0x6A, 0x6B, 0x6C, 0x6D, 0x6E, 0x6F,                 /* 68-6F */
+
+  /* [pqrstuvwxyz{|}~ ] ('|' and DEL are errors on both) */
+  0x70, 0x71, 0x72, 0x73, 0x74,   0x75, 0x76, 0x77,               /* 70-77 */
+  0x78, 0x79, 0x7A, 0x7B, CH_ERR, 0x7D, 0x7E, CH_ERR,             /* 78-7F */
+
+  /* RISC OS 8-bit encoding to UTF-16; return error only for unmapped 0x87 */
+
+  /* 0x83 becomes square with quadrant; 0x84 becomes heavy ballot X;
+     arrows at 0x88-0x8B map to double arrows (documented in PRM). */
+
+  0x20AC, 0x0174, 0x0175, 0x25F0, 0x2718, 0x0176, 0x0177, CH_ERR, /* 80-87 */
+  0x21D0, 0x21D2, 0x21D3, 0x21D1, 0x2026, 0x2122, 0x2030, 0x2022, /* 88-8F */
+
+  /* 0x99 becomes minus sign (one-way) */
+  0x2018, 0x2019, 0x2039, 0x203A, 0x201C, 0x201D, 0x201E, 0x2013, /* 90-97 */
+  0x2014, 0x2212, 0x0152, 0x0153, 0x2020, 0x2021, 0xFB01, 0xFB02, /* 98-9F */
+
+  /* NBSP becomes ASCII space. */
+  0x20, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7,
+  0xA8, 0xA9, 0xAA, 0xAB, 0xAC, 0xAD, 0xAE, 0xAF,
+
+  0xB0, 0xB1, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7,
+  0xB8, 0xB9, 0xBA, 0xBB, 0xBC, 0xBD, 0xBE, 0xBF,
+
+  0xC0, 0xC1, 0xC2, 0xC3, 0xC4, 0xC5, 0xC6, 0xC7,
+  0xC8, 0xC9, 0xCA, 0xCB, 0xCC, 0xCD, 0xCE, 0xCF,
+
+  0xD0, 0xD1, 0xD2, 0xD3, 0xD4, 0xD5, 0xD6, 0xD7,
+  0xD8, 0xD9, 0xDA, 0xDB, 0xDC, 0xDD, 0xDE, 0xDF,
+
+  0xE0, 0xE1, 0xE2, 0xE3, 0xE4, 0xE5, 0xE6, 0xE7,
+  0xE8, 0xE9, 0xEA, 0xEB, 0xEC, 0xED, 0xEE, 0xEF,
+
+  0xF0, 0xF1, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7,
+  0xF8, 0xF9, 0xFA, 0xFB, 0xFC, 0xFD, 0xFE, 0xFF
 };
 
-static const char xlt_DOS2RO[256] =
+/* This table (ROTF-8) is for character conversions from
+ * 0x00 to 0xFF where we don't want to swap '.' and '/',
+ * nor encode RISC OS filename special chars as Base64.
+ * Use this for machine names, share names, usernames,
+ * and anything else that isn't a filename or pathname.
+ * Note that embedded '\n', '\r', '\t', 0x7f, and other
+ * control chars will still be considered errors.
+ */
+static const uint16_t ROTF8_to_SMB16[256] =
 {
-  CH_END, CH_DUD, CH_DUD, CH_DUD, CH_DUD, CH_DUD, CH_DUD, CH_DUD, /* 00-07 */
-  CH_DUD, CH_DUD, CH_END, CH_DUD, CH_DUD, CH_END, CH_DUD, CH_DUD, /* 08-1F */
-  CH_DUD, CH_DUD, CH_DUD, CH_DUD, CH_DUD, CH_DUD, CH_DUD, CH_DUD, /* 10-17 */
-  CH_DUD, CH_DUD, CH_DUD, CH_DUD, CH_DUD, CH_DUD, CH_DUD, CH_DUD, /* 17-1F */
+  CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, /* 00-07 */
+  CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, /* 08-0F */
 
-/* SPACE   !       "       #       $       %       &       '         20-27 */
-  CH_DUD, '!',    CH_DUD, '?',    '<',    ';',    '+',    '\'',
-/* (       )       *       +       ,       -       .       /         28-2F */
-  '(',    ')',    CH_DUD, CH_DUD, CH_DUD, '-',    CH_SEP, CH_DUD,
-/* 0       1       2       3       4       5       6       7         30-37 */
-  '0',    '1',    '2',    '3',    '4',    '5',    '6',    '7',
-/* 8       9       :       ;       <       =       >       ?         38-3F */
-  '8',    '9',    CH_DUD, CH_DUD, CH_DUD, CH_DUD, CH_DUD, CH_DUD,
-/* @       A       B       C       D       E       F       G         40-47 */
-  '=',    'A',    'B',    'C',    'D',    'E',    'F',    'G',
-  'H',    'I',    'J',    'K',    'L',    'M',    'N',    'O',
-  'P',    'Q',    'R',    'S',    'T',    'U',    'V',    'W',
-/* X       Y       Z       [       \       ]       ^       _         58-5F */
-  'X',    'Y',    'Z',    CH_DUD, CH_DUD, CH_DUD, '>',    '_',
-/* `       a       b       c       d       e       f       g         60-67 */
-  '`',    'a',    'b',    'c',    'd',    'e',    'f',    'g',
-  'h',    'i',    'j',    'k',    'l',    'm',    'n',    'o',
-  'p',    'q',    'r',    's',    't',    'u',    'v',    'w',
-/* x       y       z       {       |       }       ~       DEL       78-7F */
-  'x',    'y',    'z',    '{',    CH_DUD, '}',    '~',     CH_DUD,
+  CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, /* 10-17 */
+  CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, /* 18-1F */
 
-  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
-  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
-  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
-  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
+  /* [ !"#$%&'()*+,-./] (don't swap '.' and '/' or return errors) */
+  0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27,                 /* 20-27 */
+  0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D, 0x2E, 0x2F,                 /* 28-2F */
 
-  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
-  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
-  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
-  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
+  /* [0123456789:;<=>?] (catch illegal share name chars elsewhere) */
+  0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37,                 /* 30-37 */
+  0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F,                 /* 38-3F */
 
-  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
-  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
-  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
-  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
+  /* [@ABCDEFGHIJKLMNO] (don't return error for '@') */
+  0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47,                 /* 40-47 */
+  0x48, 0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E, 0x4F,                 /* 48-4F */
 
-  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
-  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
-  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD,
-  CH_DUD, CH_DUD, CH_DUD, CH_DUD,  CH_DUD, CH_DUD, CH_DUD, CH_DUD
+  /* [PQRSTUVWXYZ[\]^_] (catch illegal share name chars elsewhere) */
+  0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57,                 /* 50-57 */
+  0x58, 0x59, 0x5A, 0x5B, 0x5C, 0x5D, 0x5E, 0x5F,                 /* 58-5F */
+
+  /* [`abcdefghijklmno] */
+  0x60, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67,                 /* 60-67 */
+  0x68, 0x69, 0x6A, 0x6B, 0x6C, 0x6D, 0x6E, 0x6F,                 /* 68-6F */
+
+  /* [pqrstuvwxyz{|}~ ] (handle 0x7f as an error char) */
+  0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x77,                 /* 70-77 */
+  0x78, 0x79, 0x7A, 0x7B, 0x7C, 0x7D, 0x7E, CH_ERR,               /* 78-7F */
+
+  /* RISC OS 8-bit encoding to UTF-16; return error only for unmapped 0x87 */
+
+  /* 0x83 becomes square with quadrant; 0x84 becomes ballot cross mark;
+     arrows at 0x88-0x8B map to double arrows (documented in PRM). */
+
+  0x20AC, 0x0174, 0x0175, 0x25F0, 0x2718, 0x0176, 0x0177, CH_ERR, /* 80-87 */
+  0x21D0, 0x21D2, 0x21D3, 0x21D1, 0x2026, 0x2122, 0x2030, 0x2022, /* 88-8F */
+
+  /* 0x99 becomes U+2212 minus sign (one-way) */
+  0x2018, 0x2019, 0x2039, 0x203A, 0x201C, 0x201D, 0x201E, 0x2013, /* 90-97 */
+  0x2014, 0x2212, 0x0152, 0x0153, 0x2020, 0x2021, 0xFB01, 0xFB02, /* 98-9F */
+
+  /* Note: pass through NBSP and soft hyphen directly. */
+  0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7,
+  0xA8, 0xA9, 0xAA, 0xAB, 0xAC, 0xAD, 0xAE, 0xAF,
+
+  0xB0, 0xB1, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7,
+  0xB8, 0xB9, 0xBA, 0xBB, 0xBC, 0xBD, 0xBE, 0xBF,
+
+  0xC0, 0xC1, 0xC2, 0xC3, 0xC4, 0xC5, 0xC6, 0xC7,
+  0xC8, 0xC9, 0xCA, 0xCB, 0xCC, 0xCD, 0xCE, 0xCF,
+
+  0xD0, 0xD1, 0xD2, 0xD3, 0xD4, 0xD5, 0xD6, 0xD7,
+  0xD8, 0xD9, 0xDA, 0xDB, 0xDC, 0xDD, 0xDE, 0xDF,
+
+  0xE0, 0xE1, 0xE2, 0xE3, 0xE4, 0xE5, 0xE6, 0xE7,
+  0xE8, 0xE9, 0xEA, 0xEB, 0xEC, 0xED, 0xEE, 0xEF,
+
+  0xF0, 0xF1, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7,
+  0xF8, 0xF9, 0xFA, 0xFB, 0xFC, 0xFD, 0xFE, 0xFF
 };
+
+/* For 0x00 to 0xFF, use this table, plus additional small UTF-16
+ * to RISC OS 8-bit lookup tables with pairs of UTF-16 and
+ * corresponding 8-bit RISC OS mapping. The most-significant byte
+ * will only be one of a small number of values for the reverse
+ * UTF-16 to RISC OS conversions, and the default for everything
+ * else in 0x0100-0xFFFF will be modified Base64 ROTF-8 encoding.
+ *
+ * This table (ROFTF-8) is for filename special char encoding
+ * and swaps '.' and '/'.
+ */
+static const uint8_t SMB16_to_ROFTF8[256] =
+{
+  /* SMB defines these as errors. */
+  CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, /* 00-07 */
+  CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, /* 08-0F */
+
+  CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, /* 10-17 */
+  CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, /* 18-1F */
+
+  /* [ !"#$%&'()*+,-./] (swap '.' and '/'; encode wildcards '*' and '#'
+                         plus '"', '$', '%', and '&'; space becomes 0xA0 */
+  0xA0, 0x21, CH_ENC, CH_ENC, CH_ENC, CH_ENC, CH_ENC, 0x27,       /* 20-27 */
+  0x28, 0x29, CH_ENC, 0x2B,   0x2C,   0x2D,   0x2F,   0x2E,       /* 28-2F */
+
+  /* [0123456789:;<=>?] (encode ':' if we see it) */
+  0x30, 0x31, 0x32,   0x33, 0x34, 0x35, 0x36, 0x37,               /* 30-37 */
+  0x38, 0x39, CH_ENC, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F,               /* 38-3F */
+
+  /* [@ABCDEFGHIJKLMNO] (encode '@' if we see it) */
+  CH_ENC, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47,               /* 40-47 */
+  0x48,   0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E, 0x4F,               /* 48-4F */
+
+  /* [PQRSTUVWXYZ[\]^_] (encode '\' and '^' if we see them) */
+  0x50, 0x51, 0x52, 0x53, 0x54,   0x55, 0x56,   0x57,             /* 50-57 */
+  0x58, 0x59, 0x5A, 0x5B, CH_ENC, 0x5D, CH_ENC, 0x5F,             /* 58-5F */
+
+  /* [`abcdefghijklmno] */
+  0x60, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67,                 /* 60-67 */
+  0x68, 0x69, 0x6A, 0x6B, 0x6C, 0x6D, 0x6E, 0x6F,                 /* 68-6F */
+
+  /* [pqrstuvwxyz{|}~ ] (encode '|' and DEL if we see them) */
+  0x70, 0x71, 0x72, 0x73, 0x74,   0x75, 0x76, 0x77,               /* 70-77 */
+  0x78, 0x79, 0x7A, 0x7B, CH_ENC, 0x7D, 0x7E, CH_ENC,             /* 78-7F */
+
+  /* Assume anything in 0x0080-0x009F from SMB is Windows-1252 and
+   * either convert to RISC OS 8-bit encoding or Base64 encode it.
+   * This shouldn't be common since every character in this range
+   * already has a real Unicode mapping.
+   */
+
+  0x80,   CH_ENC, CH_ENC, CH_ENC, 0x96, 0x8C,   0x9C,   0x9D,     /* 80-87 */
+  CH_ENC, 0x8E,   CH_ENC, 0x92,   0x9A, CH_ENC, CH_ENC, CH_ENC,   /* 88-8F */
+
+  CH_ENC, 0x90,   0x91,   0x94,   0x95, 0x8F,   0x97,   0x98,     /* 90-97 */
+  CH_ENC, 0x8D,   CH_ENC, 0x93,   0x9B, CH_ENC, CH_ENC, CH_ENC,   /* 98-9F */
+
+  /* Note: macron may need to be escaped if ambiguous. */
+  0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7,
+  0xA8, 0xA9, 0xAA, 0xAB, 0xAC, 0xAD, 0xAE, 0xAF,
+
+  0xB0, 0xB1, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7,
+  0xB8, 0xB9, 0xBA, 0xBB, 0xBC, 0xBD, 0xBE, 0xBF,
+
+  0xC0, 0xC1, 0xC2, 0xC3, 0xC4, 0xC5, 0xC6, 0xC7,
+  0xC8, 0xC9, 0xCA, 0xCB, 0xCC, 0xCD, 0xCE, 0xCF,
+
+  0xD0, 0xD1, 0xD2, 0xD3, 0xD4, 0xD5, 0xD6, 0xD7,
+  0xD8, 0xD9, 0xDA, 0xDB, 0xDC, 0xDD, 0xDE, 0xDF,
+
+  0xE0, 0xE1, 0xE2, 0xE3, 0xE4, 0xE5, 0xE6, 0xE7,
+  0xE8, 0xE9, 0xEA, 0xEB, 0xEC, 0xED, 0xEE, 0xEF,
+
+  0xF0, 0xF1, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7,
+  0xF8, 0xF9, 0xFA, 0xFB, 0xFC, 0xFD, 0xFE, 0xFF
+};
+
+/* This table (ROTF-8) is for character conversions from
+ * 0x00 to 0xFF where we don't want to swap '.' and '/',
+ * nor encode RISC OS filename special chars as Base64.
+ * Use this for machine names, share names, usernames,
+ * and anything else that isn't a filename or pathname.
+ * Basically its only purpose is to flag control codes as
+ * errors and translate any Windows-1252 chars we may get.
+ */
+static const uint8_t SMB16_to_ROTF8[256] =
+{
+  /* SMB defines these as errors. */
+  CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, /* 00-07 */
+  CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, /* 08-0F */
+
+  CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, /* 10-17 */
+  CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, CH_ERR, /* 18-1F */
+
+  /* [ !"#$%&'()*+,-./] (don't swap '.' and '/' or return errors) */
+  0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27,                 /* 20-27 */
+  0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D, 0x2E, 0x2F,                 /* 28-2F */
+
+  /* [0123456789:;<=>?] (catch illegal share name chars elsewhere) */
+  0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37,                 /* 30-37 */
+  0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F,                 /* 38-3F */
+
+  /* [@ABCDEFGHIJKLMNO] (don't return error for '@') */
+  0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47,                 /* 40-47 */
+  0x48, 0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E, 0x4F,                 /* 48-4F */
+
+  /* [PQRSTUVWXYZ[\]^_] (catch illegal share name chars elsewhere) */
+  0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57,                 /* 50-57 */
+  0x58, 0x59, 0x5A, 0x5B, 0x5C, 0x5D, 0x5E, 0x5F,                 /* 58-5F */
+
+  /* [`abcdefghijklmno] */
+  0x60, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67,                 /* 60-67 */
+  0x68, 0x69, 0x6A, 0x6B, 0x6C, 0x6D, 0x6E, 0x6F,                 /* 68-6F */
+
+  /* [pqrstuvwxyz{|}~ ] (handle 0x7f as an error char) */
+  0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x77,                 /* 70-77 */
+  0x78, 0x79, 0x7A, 0x7B, 0x7C, 0x7D, 0x7E, CH_ERR,               /* 78-7F */
+
+  /* Assume anything in 0x0080-0x009F from SMB is Windows-1252 and
+   * either convert it to RISC OS 8-bit encoding or Base64 encode it.
+   * This shouldn't be common since every character in this range
+   * has a real Unicode mapping to use.
+   */
+
+  0x80,   CH_ENC, CH_ENC, CH_ENC, 0x96, 0x8C,   0x9C,   0x9D,     /* 80-87 */
+  CH_ENC, 0x8E,   CH_ENC, 0x92,   0x9A, CH_ENC, CH_ENC, CH_ENC,   /* 88-8F */
+
+  CH_ENC, 0x90,   0x91,   0x94,   0x95, 0x8F,   0x97,   0x98,     /* 90-97 */
+  CH_ENC, 0x8D,   CH_ENC, 0x93,   0x9B, CH_ENC, CH_ENC, CH_ENC,   /* 98-9F */
+
+  /* Note: macron may need to be escaped if ambiguous. */
+  0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7,
+  0xA8, 0xA9, 0xAA, 0xAB, 0xAC, 0xAD, 0xAE, 0xAF,
+
+  0xB0, 0xB1, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7,
+  0xB8, 0xB9, 0xBA, 0xBB, 0xBC, 0xBD, 0xBE, 0xBF,
+
+  0xC0, 0xC1, 0xC2, 0xC3, 0xC4, 0xC5, 0xC6, 0xC7,
+  0xC8, 0xC9, 0xCA, 0xCB, 0xCC, 0xCD, 0xCE, 0xCF,
+
+  0xD0, 0xD1, 0xD2, 0xD3, 0xD4, 0xD5, 0xD6, 0xD7,
+  0xD8, 0xD9, 0xDA, 0xDB, 0xDC, 0xDD, 0xDE, 0xDF,
+
+  0xE0, 0xE1, 0xE2, 0xE3, 0xE4, 0xE5, 0xE6, 0xE7,
+  0xE8, 0xE9, 0xEA, 0xEB, 0xEC, 0xED, 0xEE, 0xEF,
+
+  0xF0, 0xF1, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7,
+  0xF8, 0xF9, 0xFA, 0xFB, 0xFC, 0xFD, 0xFE, 0xFF
+};
+
+/* Lookup tables contain Unicode chars beyond 0x00FF that
+ * RISC OS supports as single bytes in its 8-bit encoding.
+ *
+ * The handling can be routed with a switch statement on
+ * the upper byte.
+ */
+
+typedef struct
+{
+  uint16_t smb16_value;
+  uint8_t  rotf8_value;
+} SMB16toROTF8Pair;
+
+/* Sorted table of UTF-16 U+01xx to RISC OS 8-bit mappings */
+static const SMB16toROTF8Pair SMB16_to_R8_For_U01xx[] =
+{
+  { 0x0152,   0x9A },   /* capital OE ligature */
+  { 0x0153,   0x9B },   /* small OE ligature */
+  { 0x0174,   0x81 },   /* capital W with circumflex */
+  { 0x0175,   0x82 },   /* small W with circumflex */
+  { 0x0176,   0x85 },   /* capital Y with circumflex */
+  { 0x0177,   0x86 }    /* small Y with circumflex */
+};
+
+/* Sorted table of UTF-16 U+20xx to RISC OS 8-bit mappings */
+static const SMB16toROTF8Pair SMB16_to_R8_For_U20xx[] =
+{
+  { 0x2013,   0x97 },   /* en dash */
+  { 0x2014,   0x98 },   /* em dash */
+  { 0x2018,   0x90 },   /* left single quotation mark */
+  { 0x2019,   0x91 },   /* right single quotation mark */
+  { 0x201C,   0x94 },   /* left double quotation mark */
+  { 0x201D,   0x95 },   /* right double quotation mark */
+  { 0x201E,   0x96 },   /* double low-9 quotation mark */
+  { 0x2020,   0x9C },   /* single dagger */
+  { 0x2021,   0x9D },   /* double dagger */
+  { 0x2022,   0x8F },   /* bullet point */
+  { 0x2026,   0x8C },   /* ellipsis */
+  { 0x2030,   0x8E },   /* per mille symbol */
+  { 0x2039,   0x92 },   /* single left angle quotation mark */
+  { 0x203A,   0x93 }    /* single right angle quotation mark */
+};
+
+/* Sorted table of UTF-16 U+21xx to RISC OS 8-bit mappings */
+static const SMB16toROTF8Pair SMB16_to_R8_For_U21xx[] =
+{
+  { 0x2122,   0x8D },   /* trademark symbol */
+  { 0x21D0,   0x88 },   /* double left arrow */
+  { 0x21D1,   0x8B },   /* double up arrow */
+  { 0x21D2,   0x89 },   /* double right arrow */
+  { 0x21D3,   0x8A }    /* double down arrow */
+};
+
+/* Sorted table of UTF-16 U+FBxx to RISC OS 8-bit mappings */
+static const SMB16toROTF8Pair SMB16_to_R8_For_UFBxx[] =
+{
+  { 0xFB01,   0x9E },   /* small ligature "fi" */
+  { 0xFB02,   0x9F }    /* small ligature "fl" */
+};
+
+/* Sorted table of UTF-16 U+F0xx to RISC OS 8-bit (for filenames) */
+static const SMB16toROTF8Pair SMB16_to_ROFTF8_For_UF0xx[] =
+{
+  { 0xF023,   0x3C },   /* SFM less-than sign */
+  { 0xF024,   0x3E },   /* SFM greater-than sign */
+  { 0xF025,   0x3F }    /* SFM question mark */
+};
+
+/* Sorted table of UTF-16 U+F0xx to RISC OS 8-bit (not filenames) */
+/* This table can be removed if share names don't ever use SFM. */
+static const SMB16toROTF8Pair SMB16_to_ROTF8_For_UF0xx[] =
+{
+  { 0xF020,   0x22 },   /* SFM quotation mark */
+  { 0xF021,   0x2A },   /* SFM asterisk */
+  { 0xF022,   0x2F },   /* SFM forward slash */
+  { 0xF023,   0x3C },   /* SFM less-than sign */
+  { 0xF024,   0x3E },   /* SFM greater-than sign */
+  { 0xF025,   0x3F },   /* SFM question mark */
+  { 0xF026,   0x5C },   /* SFM backslash */
+  { 0xF027,   0x7C }    /* SFM vertical bar */
+};
+
+
+
+/* old code below! */
 
 static err_t nameROtoDOS ( char *dst, char *src )
 {
@@ -592,8 +862,6 @@ void Xlt_NameDOStoRO ( char *dst, char *src )
   *dst = 0;
 }
 
-#ifdef LONGNAMES
-
 /* OK, the mappings for long filename discs are different.
  *
  * They are:
@@ -627,21 +895,28 @@ static const char lanmanfs_lookup_table[257]=
      "\xa0!\"?<>+'()*+,-/_0123456789:;<=>#"
      "=ABCDEFGHIJKLMNOPQRSTUVWXYZ[.],_"
      "`abcdefghijklmnopqrstuvwxyz{|}~_"
-     "ÄÅÇÉÑÖÜáàâäãåçéèêëíìîïñóòôöõúùûü"
-     "\xa0°¢£§•¶ß®©™´¨≠ÆØ∞±≤≥¥µ∂∑∏π∫ªºΩæø"
-     "¿¡¬√ƒ≈∆«»… ÀÃÕŒœ–—“”‘’÷◊ÿŸ⁄€‹›ﬁﬂ"
-     "‡·‚„‰ÂÊÁËÈÍÎÏÌÓÔÒÚÛÙıˆ˜¯˘˙˚¸˝˛ˇ";
+     "\x80\x81\x82\x83\x84\x85\x86\x87\x88\x89\x8a\x8b\x8c\x8d\x8e\x8f"
+     "\x90\x91\x92\x93\x94\x95\x96\x97\x98\x99\x9a\x9b\x9c\x9d\x9e\x9f"
+     "\xa0\xa1\xa2\xa3\xa4\xa5\xa6\xa7\xa8\xa9\xaa\xab\xac\xad\xae\xaf"
+     "\xb0\xb1\xb2\xb3\xb4\xb5\xb6\xb7\xb8\xb9\xba\xbb\xbc\xbd\xbe\xbf"
+     "\xc0\xc1\xc2\xc3\xc4\xc5\xc6\xc7\xc8\xc9\xca\xcb\xcc\xcd\xce\xcf"
+     "\xd0\xd1\xd2\xd3\xd4\xd5\xd6\xd7\xd8\xd9\xda\xdb\xdc\xdd\xde\xdf"
+     "\xe0\xe1\xe2\xe3\xe4\xe5\xe6\xe7\xe8\xe9\xea\xeb\xec\xed\xee\xef"
+     "\xf0\xf1\xf2\xf3\xf4\xf5\xf6\xf7\xf8\xf9\xfa\xfb\xfc\xfd\xfe\xff";
 
 static const char lanmanfs_inverse_lookup_table[257]=
      "________________________________"
      "\x20!\"?$%+'()*+,-\\.0123456789:;<=>#"
      "=ABCDEFGHIJKLMNOPQRSTUVWXYZ[.],_"
      "`abcdefghijklmnopqrstuvwxyz{|}~_"
-     "ÄÅÇÉÑÖÜáàâäãåçéèêëíìîïñóòôöõúùûü"
-     "\x20°¢£§•¶ß®©™´¨≠ÆØ∞±≤≥¥µ∂∑∏π∫ªºΩæø"
-     "¿¡¬√ƒ≈∆«»… ÀÃÕŒœ–—“”‘’÷◊ÿŸ⁄€‹›ﬁﬂ"
-     "‡·‚„‰ÂÊÁËÈÍÎÏÌÓÔÒÚÛÙıˆ˜¯˘˙˚¸˝˛ˇ";
-
+     "\x80\x81\x82\x83\x84\x85\x86\x87\x88\x89\x8a\x8b\x8c\x8d\x8e\x8f"
+     "\x90\x91\x92\x93\x94\x95\x96\x97\x98\x99\x9a\x9b\x9c\x9d\x9e\x9f"
+     "\x20\xa1\xa2\xa3\xa4\xa5\xa6\xa7\xa8\xa9\xaa\xab\xac\xad\xae\xaf"
+     "\xb0\xb1\xb2\xb3\xb4\xb5\xb6\xb7\xb8\xb9\xba\xbb\xbc\xbd\xbe\xbf"
+     "\xc0\xc1\xc2\xc3\xc4\xc5\xc6\xc7\xc8\xc9\xca\xcb\xcc\xcd\xce\xcf"
+     "\xd0\xd1\xd2\xd3\xd4\xd5\xd6\xd7\xd8\xd9\xda\xdb\xdc\xdd\xde\xdf"
+     "\xe0\xe1\xe2\xe3\xe4\xe5\xe6\xe7\xe8\xe9\xea\xeb\xec\xed\xee\xef"
+     "\xf0\xf1\xf2\xf3\xf4\xf5\xf6\xf7\xf8\xf9\xfa\xfb\xfc\xfd\xfe\xff";
 
 /* These two structures MUST be kept in step in order to allow the
  * wildcard resolution code to function correctly.
@@ -807,7 +1082,6 @@ static err_t Xlt_NameXlateCallbackX2 ( BYTE *entry, int format, bool *taken, voi
         res = EOUTOFMEM;
         break;
       }
-#ifdef LONGNAMES
       else if (e == FileChar_TypedNamePrefix && d == 0) {
         /* Might have been a filetype suffix */
         int type, num;
@@ -820,7 +1094,6 @@ static err_t Xlt_NameXlateCallbackX2 ( BYTE *entry, int format, bool *taken, voi
           break;
         }
       }
-#endif
       else {
         if (!Xlt_ContentiousCharCheck(e, d)) {
           /* No match */
@@ -858,9 +1131,9 @@ static err_t Xlt_NameROtoDOSX2_sub ( char *dst, char *src, int level )
   private.matchbuf[0] = dst[0];
   private.matchbuf[1] = dst[1];
   Xlt_CopyViaInverseTable(private.matchbuf + 2, src, level);
-  debug0("\n\n");
-  debug1("Xlt_NameROtoDOSX2: `%s'\n", src);
-  debug1("Xlt_CopyViaInverseTable -> `%s'\n", private.matchbuf);
+  SMBDEBUG("\n\n");
+  SMBDEBUG("Xlt_NameROtoDOSX2: `%s'\n", src);
+  SMBDEBUG("Xlt_CopyViaInverseTable -> `%s'\n", private.matchbuf);
 
   /* Construct the search pathname buffer, by taking the parent directory
    * and ensuring that the name ends \*
@@ -880,7 +1153,7 @@ static err_t Xlt_NameROtoDOSX2_sub ( char *dst, char *src, int level )
     strcpy(private.dstcpy, "\\*");
   }
 
-  debug1("Xlt_NameROtoDOSX2 initiates a dir search of `%s'\n",
+  SMBDEBUG("Xlt_NameROtoDOSX2 initiates a dir search of `%s'\n",
     private.dstcpybuf);
 
   if (level == 0)
@@ -933,7 +1206,7 @@ static err_t Xlt_NameROtoDOSX2_sub ( char *dst, char *src, int level )
     }
   }
 
-  debug1("Xlt_NameROtoDOSX2 initiates a dir search of `%s' (post-mangle)\n",
+  SMBDEBUG("Xlt_NameROtoDOSX2 initiates a dir search of `%s' (post-mangle)\n",
     private.dstcpybuf);
 
   /* Repeatedly search the directory until we find a match, or there are
@@ -951,7 +1224,7 @@ static err_t Xlt_NameROtoDOSX2_sub ( char *dst, char *src, int level )
       case EOUTOFMEM:
         /* Found it */
         strcpy(dst, private.dstcpybuf);
-        debug1("**RIGHT.  Got a match: `%s'\n", dst);
+        SMBDEBUG("**RIGHT.  Got a match: `%s'\n", dst);
         break;
 
       default:
@@ -959,7 +1232,7 @@ static err_t Xlt_NameROtoDOSX2_sub ( char *dst, char *src, int level )
          * or at least filename with nasties resolved as far as possible
          */
         strcpy(dst, private.matchbuf);
-        debug1("**WRONG.  Not got a match. Reverting to `%s'\n", dst);
+        SMBDEBUG("**WRONG.  Not got a match. Reverting to `%s'\n", dst);
         break;
     }
   }
@@ -984,8 +1257,6 @@ static err_t Xlt_NameROtoDOSX2 ( char *dst, char *src )
   if (strchr(src, '*') != NULL) return ENOWILDCARD; /* As per nameROtoDOS() */
   return Xlt_NameROtoDOSX2_sub(dst, src, 0);
 }
-
-#endif
 
 /* --------------------------- */
 
@@ -1039,14 +1310,12 @@ err_t Xlt_ConvertPath ( char *name_in, char *name_out )
   }
   else if ( name_in[1] == '.' )
   {
-#ifdef LONGNAMES
     /* We use a different system for long filename shares.  Call
      * the long name resolution routine if necessary
      */
     if (SMB_IsLongNameFS( name_out )) {
       return ( Xlt_NameROtoDOSX2 ( name_out, name_in+1 ) );
     }
-#endif
     return ( nameROtoDOS ( name_out+2, name_in+1 ) );
   }
 
@@ -1115,7 +1384,6 @@ err_t Xlt_ExpandSearchEntry ( BYTE *entry, char *path_base,
   return OK;
 }
 
-#ifdef LONGNAMES
 err_t Xlt_ExpandSearchEntryX2 ( BYTE *entry, char *path_base,
             char *name_out,
             DOS_ATTRIBS *da_out,
@@ -1218,7 +1486,7 @@ err_t Xlt_SplitLeafnameX2 ( char *leafname, RISCOS_ATTRIBS *pRA,
     return res;
     }
 
-  debug1("Xlt_SplitLeafnameX2('%s',...)\n", leafname);
+  SMBDEBUG("Xlt_SplitLeafnameX2('%s',...)\n", leafname);
 
   term = strchr(leafname, '\0');
   pre = strrchr(leafname, FileChar_TypedNamePrefix);
@@ -1229,14 +1497,14 @@ err_t Xlt_SplitLeafnameX2 ( char *leafname, RISCOS_ATTRIBS *pRA,
       /* At least 5 letters long and of the form ",ttt" */
       if (stricmp(pre+1, FileString_UntypedFile) == 0)
       {
-        debug0("File is untyped (,lxa)\n");
+        SMBDEBUG("File is untyped (,lxa)\n");
         pRA->loadaddr = pRA->execaddr = LM_Vars.untyped_address;
         *terminator = pre;
         return OK;
       }
       if (stricmp(pre+1, FileString_DeadFile) == 0)
       {
-        debug0("File is DEADDEAD\n");
+        SMBDEBUG("File is DEADDEAD\n");
         pRA->loadaddr = pRA->execaddr = deaddead;
         *terminator = pre;
         return OK;
@@ -1252,7 +1520,7 @@ err_t Xlt_SplitLeafnameX2 ( char *leafname, RISCOS_ATTRIBS *pRA,
          */
         pRA->loadaddr = ENCODE_FILETYPE(pRA->loadaddr, type);
         *terminator = pre;
-        debug3("Filetype is %#03x; load/exec=%#08x %#08x\n", type,
+        SMBDEBUG("Filetype is %#03x; load/exec=%#08x %#08x\n", type,
                 pRA->loadaddr, pRA->execaddr);
         return OK;
       }
@@ -1263,7 +1531,7 @@ err_t Xlt_SplitLeafnameX2 ( char *leafname, RISCOS_ATTRIBS *pRA,
       /* At least long enough for ",l-x" and not more than ",llllllll-xxxxxxxx" */
       if (sscanf(pre+1, "%x-%x", &load, &exec) == 2)
       {
-        debug2("File is untyped load/exec=%#08x %#08x\n", load, exec);
+        SMBDEBUG("File is untyped load/exec=%#08x %#08x\n", load, exec);
         pRA->loadaddr = load; pRA->execaddr = exec;
         *terminator = pre;
         return OK;
@@ -1294,7 +1562,7 @@ err_t Xlt_SplitLeafnameX2 ( char *leafname, RISCOS_ATTRIBS *pRA,
         if (_kernel_swi(MimeMap_Translate, &rset, &rset) == NULL)
            {
            pRA->loadaddr = ENCODE_FILETYPE(pRA->loadaddr, rset.r[3]);
-           debug2("Mimemap gave type %X for '%s'\n", rset.r[3], leafname );
+           SMBDEBUG("Mimemap gave type %X for '%s'\n", rset.r[3], leafname );
            *terminator = strchr(leafname, '\0'); /* Safe to point to that null on exit */
            res = OK;
            }
@@ -1309,11 +1577,9 @@ err_t Xlt_SplitLeafnameX2 ( char *leafname, RISCOS_ATTRIBS *pRA,
 
 return res;
 }
-#endif
 
 /* ------------------------------- */
 
-#ifdef LONGNAMES
 /* Trims the optional ",ttt" extension from 'name'
  * and returns the updated string
  */
@@ -1332,11 +1598,9 @@ err_t Xlt_RemoveROType ( char *name )
 
   return OK;
 }
-#endif
 
 /* ------------------------------- */
 
-#ifdef LONGNAMES
 /* Adds the type suffix for a RISC OS filename.  The type is extracted
  * from the passed load address, unless DOS name is sufficient
  */
@@ -1391,6 +1655,5 @@ int Xlt_AddROType ( char *leafname, uint loadaddr, uint execaddr )
    if (strcmp(typebuf,ftypebuf)) strcat(leafname, typebuf);
    return 1;
 }
-#endif
 
 /* ------------------------------- */

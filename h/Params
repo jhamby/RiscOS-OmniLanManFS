@@ -105,5 +105,3 @@ typedef enum
         FSEntry_GBPB_Reason_GetMultipleBytes = 4
 }
         FSEntry_GBPB_Reason;
-
-

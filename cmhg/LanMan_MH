@@ -45,15 +45,7 @@ swi-chunk-base-number: 0x49240
 swi-decoding-table:    LanMan,
    OmniOp, FreeOp, NameOp, Transact, LogonOp
 
-#ifdef SMB1_OLD_ANTI_IDLE
-generic-veneers: callback_entry/callback_handler,	; for anti-idleout callback
-                 callevery_entry/callevery_handler
-#endif
-
 vector-handlers: NBIP_CallbackFn/NBIP_CallbackFn_handler_ctrl,
-#ifndef NO_NETBEUI
-                 ReceiveFn TickerFn LLC_CallbackFn,
-#endif
                  EventFn
 
 #ifdef NO_INTERNATIONAL_HELP
@@ -110,13 +102,6 @@ command-keyword-table: LM_Command
            help-text: "*Configure FS sets the file server or domain name from "
                       "which LanManFS will attempt to boot\n",
            invalid-syntax: "Syntax:\t*Configure FS file-server-name\n", ),
-
-#ifndef NO_NETBEUI
-    LMTransport(min-args:0, max-args:1, add-syntax:, configure:, status:,
-           help-text: "*Configure LMTransport sets whether LanManFS should use "
-                      "NetBEUI or TCP/IP as transport protocol\n",
-           invalid-syntax: "Syntax:\t*Configure LMTransport IP | NetBEUI\n", ),
-#endif
 
     LMNameServer(min-args:0, max-args:1, add-syntax:, configure:, status:,
            help-text: "*Configure LMNameServer sets the address of a "
@@ -175,12 +160,6 @@ command-keyword-table: LM_Command
     FS(min-args:0, max-args:1, international:, configure:, status:,
            help-text: "HCFFS",
            invalid-syntax: "SCFFS", ),
-
-#ifndef NO_NETBEUI
-    LMTransport(min-args:0, max-args:1, international:, configure:, status:,
-           help-text: "HCTRN",
-           invalid-syntax: "SCTRN", ),
-#endif
 
     LMNameServer(min-args:0, max-args:1, international:, configure:, status:,
            help-text: "HCNMS",

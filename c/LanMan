@@ -47,7 +47,6 @@
 #include "Params.h"
 #include "CoreFn.h"
 #include "BufLib.h"
-#include "NetBIOS.h"
 #include "SMB.h"
 #include "Xlate.h"
 #include "VersionNum"
@@ -59,6 +58,9 @@
 #include "LanMan_MH.h"
 
 /* ---------------------------------- */
+
+/* Pointer to uppercase table for the current locale. */
+const char *upper_case_table;
 
 extern void *Resources(void);
 
@@ -74,19 +76,11 @@ enum {
         LMInitState_Boot
 };
 
-#ifdef SMB1_OLD_ANTI_IDLE
-static void startcallbacks(void);
-static void stopcallbacks(void);
-#endif
-
 static _kernel_oserror *LM_init_phase_2(void);
 
 /* ---------------------------------- */
 
 struct LMvars LM_Vars;
-#ifdef SMB1_OLD_ANTI_IDLE
-static volatile int callbackflag = 0;
-#endif
 static int msg_struct[4]; /* MessageTrans block */
 static _kernel_oserror msg_buff; /* MessageTrans buffer */
 static _kernel_oserror *msg_oserr;
@@ -146,7 +140,7 @@ _kernel_oserror *MsgError(int which)
 {
   struct {
     int errnum;
-    char errmess[8];
+    char errmess[4];
   } token;
 
   if (which == OK) return NULL; /* No error */
@@ -158,7 +152,7 @@ _kernel_oserror *MsgError(int which)
     which = EHOWDTHATHAPPEN;
   }
 
-  sprintf(token.errmess, "E%02u", which);
+  snprintf(token.errmess, 4, "E%02u", which);
   if ((which == EDIRNOTEMPTY) || (which == ENOACCESS))
   {
       /* Fudge for Filer_Action which expects a FileCore
@@ -226,18 +220,6 @@ static void GetFSName ( char *buf_out )
   *buf_out = 0;
 }
 
-/* --------------------- */
-
-#ifndef NO_NETBEUI
-static void lanman_announce_lanmanfs(int r2, void *pw)
-{
-  /* Send the service call announcing the presence/absence of a protocol module */
-  if (NB_InitedTransport == NB_NetBEUI_Setup)
-    (void) _swix(OS_ServiceCall, _INR(0,4), pw,
-      Service_DCIProtocolStatus, r2, DCIVERSION, Module_Title);
-}
-#endif
-
 /* Finalisation code ------------------------------------ */
 
 static void LM_Undeclare ( void )
@@ -258,9 +240,6 @@ static void LM_Undeclare ( void )
 
 static void LM_GracefulClosedown(void)
 {
-#ifdef SMB1_OLD_ANTI_IDLE
-  stopcallbacks();
-#endif
   SMB_Shutdown();            /* Dismounts all SMB mounts first as */
   Omni_Shutdown();           /* Omni_Shutdown zeros the Mounts lists */
   Prn_Shutdown();            /* Free print jobs */
@@ -271,16 +250,14 @@ static void LM_GracefulClosedown(void)
 
 _kernel_oserror * LM_Finalise (int fatal, int podule, void *pw)
 {
-  debug0("Finalise\n");
+  SMBDEBUG("Finalise\n");
   (void) fatal;
   (void) podule;
+  (void) pw;
 
   /* Dismount all (NB.Before announcing we're done with the protocol) */
   LM_GracefulClosedown();
-#ifndef NO_NETBEUI
-  /* Tell the DCI driver the NetBEUI protocol is gone */
-  lanman_announce_lanmanfs(DCIPROTOCOL_DYING, pw);
-#endif
+
   /* Now mark this filing system as gone */
   LM_Undeclare();
 
@@ -553,12 +530,7 @@ static void SetDefaultVars ( void )
   }
 
   /* Set transport type from CMOS, unless overridden on command line */
-#ifdef NO_NETBEUI
   LanMan_InitTransport(NB_NBIP_Setup);
-#else
-  LanMan_InitTransport(RdCMOS ( CMOS_NB_TYPE ) & NBTYPE_IP_BIT  ?
-    NB_NBIP_Setup : NB_NetBEUI_Setup);
-#endif
 }
 
 /* --------------------- */
@@ -605,7 +577,7 @@ static _kernel_oserror *Cmd_LMInfo ( const char *args )
   (void) args;
   Omni_Debug();
 #ifdef DEBUG
-  debug1("Status: %s\n", LM_Status());
+  SMBDEBUG("Status: %s\n", LM_Status());
   Stat_Show();
 #endif
   return NULL;
@@ -787,44 +759,6 @@ static _kernel_oserror *Cmd_FS ( const char *args )
 
 /* --------------------- */
 
-#ifndef NO_NETBEUI
-
-static _kernel_oserror *Cmd_LMTransport ( const char *args )
-{
-  /* This is a *Configure/Status command handler */
-  char *argv[1];
-  static const char *tp1 = "IP";
-
-  static const char *tp0 = "NetBEUI";
-  if ( args == arg_CONFIGURE_SYNTAX ) /* Show 'Configure' options */
-  {
-    printf("LMTransport  <%s | %s>\n", tp0, tp1);
-    return NULL;
-  }
-  else if ( args == arg_STATUS ) /* Show FS status */
-  {
-    printf("LMTransport  %s\n",
-      (RdCMOS(CMOS_NB_TYPE) & NBTYPE_IP_BIT) ? tp1:tp0);
-    return NULL;
-  }
-
-  if ( GetArgs( args, argv, 1 ) < 1 )
-    return MsgError ( EBADPARAM );
-
-  if ( stricmp ( argv[0], tp0 ) == 0 )
-    WrCMOS(CMOS_NB_TYPE, RdCMOS(CMOS_NB_TYPE) & ~NBTYPE_IP_BIT );
-  else
-  if ( stricmp ( argv[0], tp1 ) == 0 )
-    WrCMOS(CMOS_NB_TYPE, RdCMOS(CMOS_NB_TYPE) | NBTYPE_IP_BIT );
-  else
-    return configure_BAD_OPTION;
-
-  return NULL;
-}
-
-#endif /* NO_NETBEUI */
-
-/* --------------------- */
 static _kernel_oserror *Cmd_LMNameServer( const char *args )
 {
   /* This is a *Configure/Status command handler - it's therefore unusual */
@@ -900,9 +834,6 @@ static CommandFnPtr Cmd_Dispatch[] =
   CmdEntry(Free),
   CmdEntry(ListFS),
   CmdEntry(FS),
-#ifndef NO_NETBEUI
-  CmdEntry(LMTransport),
-#endif
   CmdEntry(LMNameServer)
 };
 
@@ -1054,12 +985,6 @@ static err_t ProcessCmdLine ( const char *_line )
          LanMan_InitTransport(NB_NBIP_Setup);
          break;
 
-#ifndef NO_NETBEUI
-      case 'T': /* -t use NetBEUI */
-         LanMan_InitTransport(NB_NetBEUI_Setup);
-         break;
-#endif
-
       default:
          return ECMDLINE;
     }
@@ -1080,7 +1005,7 @@ void LM_Boot(void)
   char fs_name [ FSERVER_LEN+1 ];
 
   if (LM_Vars.initialised < LMInitState_FullyInited) {
-    debug1("LM_Boot called, but cannot comply: %s\n", LM_Status());
+    SMBDEBUG("LM_Boot called, but cannot comply: %s\n", LM_Status());
     LM_Vars.initialised = LMInitState_Boot;
     return;
   }
@@ -1089,7 +1014,7 @@ void LM_Boot(void)
 
   if ( strlen(fs_name) == 0 )
   {
-    debug0("Auto-boot: server name has not been set...\n");
+    SMBDEBUG("Auto-boot: server name has not been set...\n");
     return;
   }
 
@@ -1100,7 +1025,7 @@ void LM_Boot(void)
     if ( serv_name == NULL )
       serv_name = fs_name;
 
-    debug1( "Server name '%s'\n", serv_name );
+    SMBDEBUG( "Server name '%s'\n", serv_name );
 
     /* Wash'n'go... */
 
@@ -1154,6 +1079,9 @@ _kernel_oserror *LM_Initialise(const char *cmd_tail, int pod_base, void *pw)
   debug_output_device(REPORTER_OUTPUT);
   LM_Vars.initialised = LMInitState_Uninitialised;
 
+  /* Get the uppercase table for the current locale */
+  _swix( Territory_UpperCaseTable, _IN(0)|_OUT(0), -1, upper_case_table );
+
   (void)pod_base;
   if (pw != NULL)
   {
@@ -1191,14 +1119,6 @@ _kernel_oserror *LM_Initialise(const char *cmd_tail, int pod_base, void *pw)
 
   (void) LM_init_phase_2();
 
-#ifndef NO_NETBEUI
-  /* Cheap way to set a callback ;-) Send service call announcing ourselves */
-  if (NB_InitedTransport == NB_NetBEUI_Setup) {
-    callevery_handler(&R, pw);
-    callbackflag = 2;
-  }
-#endif
-
   return NULL;
 
 initclose:
@@ -1221,7 +1141,7 @@ static _kernel_oserror *LM_init_phase_2(void)
 
   want_boot = (LM_Vars.initialised == LMInitState_Boot);
 
-  debug0("Initialising...\n");
+  SMBDEBUG("Initialising...\n");
 
   if (!FS_Init() || !SMB_Init()) goto initfailed;
   shutdowns[ctr++] = (pfnShutdown) SMB_Shutdown;
@@ -1236,28 +1156,24 @@ static _kernel_oserror *LM_init_phase_2(void)
 
   /* Try to start various modules */
 
-  debug0("Starting network transport...\n");
+  SMBDEBUG("Starting network transport...\n");
 
   err = MsgError( NB_Startup() );
   if (err != NULL)
   {
-    debug2(    "Error - NB_Startup() returned %d (%s)\n",err->errnum,err->errmess);
+    SMBDEBUG(    "Error - NB_Startup() returned %d (%s)\n",err->errnum,err->errmess);
     goto abort;
   }
 
 #if 0
-  debug0("Starting filing system...\n");
+  SMBDEBUG("Starting filing system...\n");
 
   err = LM_Declare();
   if (err != NULL) {
-          debug1("LanManFS: %s\n", err->errmess);
+          SMBDEBUG("LanManFS: %s\n", err->errmess);
           NB_Shutdown();
           goto abort;
   }
-#endif
-
-#ifdef SMB1_OLD_ANTI_IDLE
-  startcallbacks();
 #endif
 
   /* We have now managed to fully initialise everything that we need - whee! */
@@ -1270,24 +1186,24 @@ static _kernel_oserror *LM_init_phase_2(void)
 
   /*LM_StartupBoot();*/
   if (want_boot) {
-          debug0("Booting...\n");
+          SMBDEBUG("Booting...\n");
           LM_Boot();
   }
 
-  debug0("All done...\n");
+  SMBDEBUG("All done...\n");
 
   return NULL;
 
 initfailed:
   err = MsgError(EINITFAILED);
-  debug2("LanManFS: %s (%s)\n", err->errmess, LM_Status());
+  SMBDEBUG("LanManFS: %s (%s)\n", err->errmess, LM_Status());
   while (--ctr >= 0) (shutdowns[ctr])();
   return err;
 
 abort:
   LM_Vars.initialised = oldstate;
   while (--ctr >= 0) (shutdowns[ctr])();
-  debug1("LanManFS: %s\n", LM_Status());
+  SMBDEBUG("LanManFS: %s\n", LM_Status());
   return NULL;
 
 /* abort used to use this, but that assumes deterministic module startup,   *
@@ -1310,7 +1226,7 @@ static void LM_check_driver_status(_kernel_swi_regs *r)
 
         sprintf(if_name, "%-.8s%d", dib->dib_name, dib->dib_unit);
 
-#ifdef TRACE
+#ifdef SMB_DEBUG
         printf ("Service_DCIDriverStatus called (interface %s%d is %sing)\n"
         	"  Driver supports DCI version %d.%02d\n",
         	dib->dib_name, dib->dib_unit, r->r[2] ? "dy" : "start",
@@ -1327,25 +1243,6 @@ static void LM_check_driver_status(_kernel_swi_regs *r)
                 /* Capture the first interface to start which isn't loopback */
                 (void) strncpy(LM_Vars.drivername, if_name, NAME_LIMIT);
         }
-
-#ifndef NO_NETBEUI
-        if (NB_InitedTransport != NB_NetBEUI_Setup) {
-                return;
-        }
-
-        if (stricmp(LM_Vars.drivername, if_name) == 0) {
-                debug0("Ding!  This was our interface\n");
-		if (r->r[2] == DCIDRIVER_STARTING) {
-		        /*if (LM_Vars.initialised ==  LMInitState_FullyInited)*/ {
-                        	LM_GracefulClosedown();
-		        }
-	                LM_init_phase_2();
-		}
-		else if (r->r[2] == DCIDRIVER_DYING) {
-		        LM_GracefulClosedown();
-		}
-        }
-#endif
 }
 
 static void LM_check_protocol_status(_kernel_swi_regs *r)
@@ -1364,7 +1261,7 @@ static void LM_check_protocol_status(_kernel_swi_regs *r)
 }
 
 
-#ifdef TRACE
+#ifdef SMB_DEBUG
 
 static void DumpBuffer(void *ptr, int len)
 {
@@ -1381,7 +1278,7 @@ static void DumpBuffer(void *ptr, int len)
                                 p+=sprintf(p, "%c", (membuf[j]>=32 && membuf[j] != 0x7f) ?
                                 membuf[j] : '.');
                         }
-                        printf("$%s\n", db);
+                        SMBDEBUG("$%s\n", db);
                         p=db+sprintf(db,"%04x: ", i);
                 }
                 if (i>=len) {
@@ -1396,7 +1293,7 @@ static void DumpBuffer(void *ptr, int len)
         if (i) for ( p+=sprintf (p,"  "), j = i - 32; j != i; ++j) p+=sprintf (p,"%c",
             j>=len ? ' ' : (membuf[j]>=32 && membuf[j] != 0x7f) ?
             membuf[j] : '.');
-        printf("$%s\n", db);
+        SMBDEBUG("$%s\n", db);
 }
 #endif
 
@@ -1415,7 +1312,7 @@ static void LM_check_internet_status(_kernel_swi_regs *r)
 	  }
 	  /* An interface address was set - almost certainly ours! */
 	}
-#ifdef TRACE
+#ifdef SMB_DEBUG
 	else if (r->r[0] == InternetStatus_DynamicBootReply) {
 	  DumpBuffer((void *)r->r[4], r->r[5]);
 	}
@@ -1441,122 +1338,3 @@ static void LM_check_internet_status(_kernel_swi_regs *r)
 	}
 	LM_init_phase_2();
 }
-
-#ifdef TRACE
-/* Debugging routine.  If str is NULL, then the log is printed to 'f' (or stderr
- * if f was NULL).  If f is NULL, the message is added to the log but not displayed
- * on the screen.  If neither f nor str was NULL, the screen characteristcs are set
- * to useful things (text window is reset, default colours restored and text origin
- * restored to 0,0, and the message is printed to the screen and copied to tne log.
- * A monotonic coumnter is incremented for each debug message logged.  Timestamps
- * are stored in the log buffer too.
- */
-#include <stdarg.h>
-int module_printf(const char *str, ...)
-{
-	static int callcount = 0;
-	static char pbuffer[65536];
-	static int pbufferptr = 0;
-	va_list ap;
-	int inblock[2];
-	FILE *f;
-
-	f=stderr;
-
-	if (f != NULL || str == NULL)  {
-		inblock[1] = -1;
-		inblock[0] = 132;
-		_swix(OS_ReadVduVariables, _INR(0,1), inblock, inblock);
-		_swix(OS_WriteC, _IN(0), 6);
-		if (inblock[0] > 20) {
-			int i;
-			for (i=0; i<0; ++i) (void) _kernel_osbyte(19,0,0);
-			_swix(OS_WriteN, _INR(0,1), "\x1a\x0c", 2);
-		}
-		_swix(OS_WriteC, _IN(0), 20);
-	}
-
-	if (!str) {
-		if (pbufferptr > 0) fprintf(f?f:stderr, "%s\n", pbuffer);
-		return 0;
-	}
-
-	++callcount;
-	if (*str != '$' && f != NULL) {
-		va_start(ap, str);
-		vfprintf(f, str, ap);
-		va_end(ap);
-	}
-	va_start(ap, str);
-	_swix(OS_ReadMonotonicTime, _OUT(0), inblock);
-	if (*str == '$') ++str; else
-	pbufferptr += sprintf(pbuffer + pbufferptr, "(%8d) (%4d) ", inblock[0], callcount);
-	pbufferptr += vsprintf(pbuffer + pbufferptr, str, ap);
-	if (pbufferptr > 60000) pbufferptr = 0;
-	return 0;
-}
-#endif
-
-
-/* ========== Callback code ========== */
-
-/* Callback management.  Some servers tend to idle-out connections.  This code stops
- * that happening.
- */
-
-#ifdef SMB1_OLD_ANTI_IDLE
-
-_kernel_oserror *callback_handler(_kernel_swi_regs *r, void *pw)
-{
-	(void) r;
-	switch (callbackflag) {
-	  case 2:
-                /* Re-entrancy on this code is OK - announce we are starting */
-                callbackflag = 0;
-#ifndef NO_NETBEUI
-                lanman_announce_lanmanfs(DCIPROTOCOL_STARTING, pw);
-#endif
-                break;
-	  case 1:
-	        debug0("Anti IdleOut Callback entered\n");
-	        SMB_AntiIdle();
-		callbackflag = 0;
-	}
-	return 0;
-}
-
-static void clearcallback(void)
-{
-	if (callbackflag != 0) {
-		(void) _swix(OS_RemoveCallBack, _INR(0,1), callback_entry, LM_pw);
-		callbackflag = 0;
-	}
-}
-
-_kernel_oserror *callevery_handler(_kernel_swi_regs *r, void *pw)
-{
-        (void) r;
-	if (callbackflag == 0) {
-		if (_swix(OS_AddCallBack, _INR(0,1), callback_entry, pw) == NULL) {
-			callbackflag = 1;
-			debug0(Module_Title ": (setcallback) just set a callback\n");
-		}
-	}
-	return 0;
-}
-
-static void startcallbacks(void)
-{
-        /* Remember that as the SMB_AntiIdle routine rotates through all the shares,
-         * each share will only be every pinged MAX_SHARES * 600 seconds.
-         */
-        (void) _swix(OS_CallEvery, _INR(0,2), (100 * 600) - 1, callevery_entry, LM_pw);
-}
-
-static void stopcallbacks(void)
-{
-        (void) _swix(OS_RemoveTickerEvent, _INR(0,1), callevery_entry, LM_pw);
-        clearcallback();
-}
-
-#endif /* SMB1_OLD_ANTI_IDLE */

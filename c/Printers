@@ -64,6 +64,7 @@ static int JobSerialNo;  /* Serial number of last job created */
 
 static void CheckDisconnect ( char drvletter )
 {
+#if 0
   int i;
   struct pjob_block *pPB;
 
@@ -81,13 +82,15 @@ static void CheckDisconnect ( char drvletter )
 
   /* No one using it - we can disconnect */
 
-  debug0("Server disconnect\n");
+  SMBDEBUG("Server disconnect\n");
 
   SMB_DeleteShare(drvletter);
+#endif
 }
 
 /* ---------------------- */
 
+#if 0
 static struct pjob_info *AllocPJob ( void )
 {
   int i;
@@ -118,22 +121,26 @@ static struct pjob_info *AllocPJob ( void )
 
   return &(pPB->jobs[0]);
 }
+#endif
 
 /* Prn_CreateJob() ------------------------------------- */
 
 err_t Prn_CreateJob ( char *servname, char *prnname, char *userid,
                         char *passwd, int *jobid_out )
 {
+#if 0
   char namebuf[16];
   err_t res;
   char drvletter;
   int  handle;
   struct pjob_info * pPJ;
+#endif
 
-  debug2("Create job srv=%s prn=%s ", servname, prnname );
-  debug2("usr=%s passwd=%s\n", userid==NULL ? "<NULL>":userid,
+  SMBDEBUG("Create job srv=%s prn=%s ", servname, prnname );
+  SMBDEBUG("usr=%s passwd=%s\n", userid==NULL ? "<NULL>":userid,
                                passwd==NULL ? "<NULL>":passwd );
 
+#if 0
   /* Try to alloc job handle */
 
   *jobid_out = 0;
@@ -160,7 +167,7 @@ err_t Prn_CreateJob ( char *servname, char *prnname, char *userid,
   res = SMB_OpenPrinter ( drvletter, namebuf, &handle );
   if ( res != OK )
   {
-    debug1("Printer open failed, code %d", res );
+    SMBDEBUG("Printer open failed, code %d\n", res );
     /* Disconnect only if no-one else is using this connection */
     CheckDisconnect(drvletter);
     return res;
@@ -178,8 +185,8 @@ err_t Prn_CreateJob ( char *servname, char *prnname, char *userid,
 
   *jobid_out = (int) pPJ;
 
-  debug1( "Created job %d\n", (int) pPJ );
-
+  SMBDEBUG( "Created job %d\n", (int) pPJ );
+#endif
   return OK;
 }
 
@@ -187,12 +194,15 @@ err_t Prn_CreateJob ( char *servname, char *prnname, char *userid,
 
 err_t Prn_WriteData ( int jobid, char *data, int datalen )
 {
+#if 0
   err_t res;
 
   struct pjob_info *pPJ;
+#endif
 
-  debug2( "Write job %d, %d chars\n", jobid, datalen );
+  SMBDEBUG( "Write job %d, %d chars\n", jobid, datalen );
 
+#if 0
   pPJ = (struct pjob_info *)jobid;
 
   if ( pPJ == NULL || pPJ->tag != PJOB_VALID_TAG ||
@@ -204,6 +214,7 @@ err_t Prn_WriteData ( int jobid, char *data, int datalen )
     return res;
 
   pPJ->bytecount += datalen;
+#endif
   return OK;
 }
 
@@ -211,12 +222,15 @@ err_t Prn_WriteData ( int jobid, char *data, int datalen )
 
 err_t Prn_CloseJob ( int jobid, bool abort )
 {
+#if 0
   err_t res;
 
   struct pjob_info *pPJ;
+#endif
 
-  debug1( "Close job %d\n", jobid );
+  SMBDEBUG( "Close job %d\n", jobid );
 
+#if 0
   pPJ = (struct pjob_info *)jobid;
 
   if ( pPJ == NULL || pPJ->tag != PJOB_VALID_TAG ||
@@ -226,7 +240,7 @@ err_t Prn_CloseJob ( int jobid, bool abort )
   res = SMB_ClosePrinter ( pPJ->SMBhandle );
   if ( res != OK )
   {
-    debug1("Close prn failed, code %d", res);
+    SMBDEBUG("Close prn failed, code %d\n", res);
     return res;
   }
 
@@ -234,6 +248,7 @@ err_t Prn_CloseJob ( int jobid, bool abort )
     pPJ->status = PJOB_ABORTED; /* Ignore really!! */
   else
     pPJ->status = PJOB_CLOSED;
+#endif
 
   return OK;
 }
@@ -242,10 +257,13 @@ err_t Prn_CloseJob ( int jobid, bool abort )
 
 err_t Prn_GetJobStatus ( int jobid, struct JobStatus *pJS )
 {
+#if 0
   struct pjob_info *pPJ;
+#endif
 
-  debug1( "Get job status %d\n", jobid );
+  SMBDEBUG( "Get job status %d\n", jobid );
 
+#if 0
   pPJ = (struct pjob_info *)jobid;
 
   if ( pPJ == NULL || pPJ->tag != PJOB_VALID_TAG )
@@ -274,6 +292,7 @@ err_t Prn_GetJobStatus ( int jobid, struct JobStatus *pJS )
   pJS->rmtstatus = 0; /* No info available */
   pJS->rmtcount = 0;
   pJS->rmterror = 0;
+#endif
 
   return OK;
 }
@@ -282,10 +301,13 @@ err_t Prn_GetJobStatus ( int jobid, struct JobStatus *pJS )
 
 err_t Prn_ClearJob ( int jobid )
 {
+#if 0
   struct pjob_info *pPJ;
+#endif
 
-  debug1( "Kill job %d\n", jobid );
+  SMBDEBUG( "Kill job %d\n", jobid );
 
+#if 0
   if ( jobid == 0 )   /* Clear all inactive jobs */
   {
     int i;
@@ -319,6 +341,7 @@ err_t Prn_ClearJob ( int jobid )
 
   pPJ->tag = 0;
   CheckDisconnect ( pPJ->SMBletter );
+#endif
 
   return OK;
 }
@@ -336,6 +359,7 @@ bool Prn_Init (void)
 
 void Prn_Shutdown (void)
 {
+#if 0
   int i;
   struct pjob_block *pPB, *pPB_next;
 
@@ -350,6 +374,5 @@ void Prn_Shutdown (void)
     pPB_next = pPB->next;
     free ( pPB );
   }
+#endif
 }
-
-

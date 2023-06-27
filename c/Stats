@@ -45,39 +45,6 @@ struct stat_info
 static struct stat_info statinfo[] =
 {
   STA_SERIOUS_BARF, SCLASS_GENERAL,  "Internal errors",
-#ifndef NO_NETBEUI
-  STA_NETTX_PKTS,   SCLASS_NETBEUI,  "Total Tx packets",
-  STA_NETRX_EVTS,   SCLASS_NETBEUI,  "Total Rx events",
-  STA_NETRX_PKTS,   SCLASS_NETBEUI,  "Total Rx packets",
-  STA_NETRX_OWNTX,  SCLASS_NETBEUI,  "Rx: Own transmission",
-
-  STA_LLCRX_PKTS,   SCLASS_NETBEUI,  "LLC: Rx pkts total",
-  STA_LLCRX_NOCONN, SCLASS_NETBEUI,  "LLC: Ignored rx packets",
-  STA_LLCRX_TOOSHORT,SCLASS_NETBEUI, "LLC: Rx Too short",
-  STA_LLCRX_UIDATA, SCLASS_NETBEUI,  "LLC: Rx Datagram",
-  STA_LLCRX_UFORMAT,SCLASS_NETBEUI,  "LLC: Rx U-format",
-
-  STA_LLCRX_SFORMAT,SCLASS_NETBEUI,  "LLC: Rx S-format",
-  STA_LLCRX_IFORMAT,SCLASS_NETBEUI,  "LLC: Rx I-format",
-  STA_LLCRX_DATA,   SCLASS_NETBEUI,  "LLC: Rx Data pkts accepted",
-  STA_LLCRX_REJDATA,SCLASS_NETBEUI,  "LLC: Rx Data pkts rejected",
-  STA_LLC_TXPACKETS,SCLASS_NETBEUI,  "LLC: Tx Data pkts sent",
-
-  STA_LLCRX_PKTACKS,SCLASS_NETBEUI,  "LLC: Tx Data pkts acked",
-  STA_LLCRX_REJECTS,SCLASS_NETBEUI,  "LLC: Tx Data pkts rejected",
-  STA_LLCRX_RESENDS,SCLASS_NETBEUI,  "LLC: Tx Data pkts re-sent",
-  STA_LLC_OPENREQ,  SCLASS_NETBEUI,  "LLC: Open Conn requests",
-  STA_LLCRX_CONN,   SCLASS_NETBEUI,  "LLC: Connections made",
-
-  STA_LLC_CLOSEREQ, SCLASS_NETBEUI,  "LLC: Close Conn requests",
-  STA_LLCRX_DISCON, SCLASS_NETBEUI,  "LLC: Connections ended",
-  STA_LLCRX_FRMR,   SCLASS_NETBEUI,  "LLC: Abort with FRMR error",
-  STA_LLCRX_DISC,   SCLASS_NETBEUI,  "LLC: Abort with DISC req",
-  STA_LLC_T1FAIL,   SCLASS_NETBEUI,  "LLC: Abort with T1 timeout",
-
-  STA_LLCRX_UNKNOWNU, SCLASS_NETBEUI,"LLC: Unknown U-format pkt",
-  STA_LLC_T1EXPIRE, SCLASS_NETBEUI,  "LLC: T1 timeouts",
-#endif
 
   STA_IP_EVENTS,    SCLASS_IP,       "IP:  Internet events",
   STA_IP_RXDGRAM,   SCLASS_IP,       "IP:  Receive datagrams",

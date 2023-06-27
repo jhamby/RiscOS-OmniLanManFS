@@ -22,18 +22,66 @@
 *
 */
 
+/*
+ * TODO:
+ * RISC OS-specific entries needed in smb_node:
+ *
+ * - Number of open readers & writers
+ * - RISC OS file id (for debugging/error cleanup/recovery)
+ * - RISC OS filetype to use
+ * - Anything related to per-server work queues not handled by smb_iod.c
+ */
+struct smbnode;
+
+/* Size of the hash table for finding open files by path
+ * Assume we'll never have max_open_files larger than 65535.
+ * Default max_open_files is 250, to minimize the harm of
+ * runaway processes.
+ *
+ * In the event of a pathname hash collision, next_with_hash
+ * is the index of the next item with the same hash value.
+ */
+#define PATH_HASH_SIZE    256
+
+/* Keep track of the nodes for open files */
+typedef struct {
+  uint32_t    uppercase_hash;   /* Hash of the uppercase pathname */
+  char        *riscos_name;     /* The pathname on the RISC OS end */
+
+  int32_t    next_with_hash;    /* Index of next open file, or -1 if none */
+
+  /* Note: presumably the smb_node has the pathname to use on the SMB end? */
+  smb_node    *node;            /* Pointer to the node object */
+} smb_node_entry;
+
+/* Think about whether to include space for extensions inline, etc.. */
+typedef struct {
+  char      *extension;         /* Filename extension */
+  uint32_t  filetype;           /* RISC OS filetype */
+} cached_filetype;
+
 struct LMvars
 {
   char machinename[NAME_LIMIT];  /* Machine name */
-  char drivername[NAME_LIMIT];   /* Name of DCI4 driver to which attached */
   char workgroup[NAME_LIMIT];    /* Workgroup to browse */
   char username[NAME_LIMIT];     /* Default user e.g. 'guest' */
-  int  namemode;
-  bool logged_on;
+  uint16_t path_hash[PATH_HASH_SIZE];    /* Search by uppercase filename */
   char *password_ptr;            /* Default password e.g. none */
+  int  namemode;
   int  initialised;              /* Initialisation state */
   int  default_type;             /* Type for which no ",xxx" suffix will be added */
   int  untyped_address;          /* Base of the OS ROM */
+
+  uint32_t max_open_files;      /* Max files can be set with a system variable */
+  smb_node_entry *open_files;   /* Array of entries of size max_open_files */
+
+  uint8_t   *block_cache_base;  /* Dynamic area for readahead and writebehind */
+
+  uint32_t  io_counter;         /* Incremented for each I/O operation */
+  uint32_t  *block_cache_used;  /* Bitmap for whether each 64 KB page is used */
+  uint32_t  *block_cache_dirty; /* Bitmap for the pages with writebehind writes */
+  uint16_t  *block_cache_age;   /* Copied from io_counter ahead of reads/writes */
+  uint16_t  *block_cache_owner; /* The file offset of the owner of this block */
 };
 
 extern struct LMvars LM_Vars;

@@ -1,4 +1,4 @@
-/* Copyright 1998 Acorn Computers Ltd
+/* Copyright 2023 Jake Hamby
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -12,25 +12,16 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 /*
-*  Lan Manager client
-*
-*  Attr.H --  Header for Attr.c exports
-*
-*  Versions
-*  18-08-94 INH Original
-*
-*/
-
-extern err_t Attr_GetInfo ( char *pathname, char *leafname,
-      RISCOS_ATTRIBS *pRA );
-
-extern err_t Attr_SetInfo ( char *pathname, RISCOS_ATTRIBS *pRA );
-
-extern err_t Attr_DeleteInfo ( char *pathname );
-
-extern void Attr_CheckEmptyDir ( char *pathname );
-
-extern void Attr_InvalidateDrive ( char drv_letter );
-
-
+ * Simple block cache optimized for systems from 1 to 8 GB RAM.
+ * Pathname lookup for already-open files is a hash lookup. File
+ * numbers are 1 + an index into tables allocated at startup time
+ * based on the maximum number of open files that need to be
+ * handled (default is 250).
+ *
+ * Once the entry is found, either by pathname lookup or by the
+ * index into the table used in subsequent file operations,
+ * inside the smb_node struct is a set of indices into the
+ * extents of 64 KB-allocated pages used by this file.
+ */
