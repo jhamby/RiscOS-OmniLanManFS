@@ -17,7 +17,7 @@
  */
 #include <string.h>
 
-#include "stdtypes.h"
+#include "smb_riscos.h"
 #include "swis.h"
 
 #include "sys/socket.h"
@@ -126,12 +126,91 @@ void m_copyback(struct mbuf *m0, register int off, register int len, caddr_t cp)
 		m = m->m_next;
 	}
 out:
-#if 0
 	if (((m = m0)->m_flags & M_PKTHDR) && (m->m_pkthdr.len < totlen))
 		m->m_pkthdr.len = totlen;
-#else
-	;
-#endif
 }
 
-/* EOF mbuf.c */
+/* Modified copy of function from Networking/AUN/Internet/kern/c/uipc_mbuf. */
+
+/*
+ * Make a copy of an mbuf chain starting "off0" bytes from the beginning,
+ * continuing for "len" bytes.  If len is M_COPYALL, copy to end of mbuf.
+ * The wait parameter is a choice of M_WAIT/M_DONTWAIT from caller.
+ */
+struct mbuf *
+m_copym(struct mbuf *m, size_t off0, size_t len, int wait)
+{
+    (void) wait;  /* ignored */
+
+    struct mbuf *n;
+    int copyhdr = 0;
+
+    if (off0 == 0 && m->m_flags & M_PKTHDR)
+        copyhdr = 1;
+
+    n = m_copy_p(m, off0, len);
+#if 0
+    if (n == 0) {
+        m_reclaim();
+        n = m_copy_p(m, off0, len);
+    }
+#endif
+    if (n == 0)
+        return (0);
+
+    if (copyhdr) {
+        M_COPY_PKTHDR(n, m);
+        if (len == M_COPYALL)
+            n->m_pkthdr.len -= off0;
+        else
+            n->m_pkthdr.len = len;
+    }
+    return (n);
+}
+
+/* Helper functions from xnu bsd/kern/uipc_mbuf.c */
+
+/*
+ * Lesser-used path for M_PREPEND: allocate new mbuf to prepend to chain,
+ * copy junk along.  Does not adjust packet header length.
+ */
+static inline struct mbuf *
+m_prepend(struct mbuf *m, int len, int how)
+{
+    struct mbuf *mn;
+
+    if ( mbuf_get( how, m->m_type, &mn ) ) {
+        m_freem(m);
+        return (NULL);
+    }
+    if (m->m_flags & M_PKTHDR) {
+        M_COPY_PKTHDR(mn, m);
+        m->m_flags &= ~M_PKTHDR;
+    }
+    mn->m_next = m;
+    m = mn;
+#if 0
+    if (len < MHLEN)
+        MH_ALIGN(m, len);
+#endif
+    m->m_len = len;
+    return (m);
+}
+
+/*
+ * Replacement for old M_PREPEND macro: allocate new mbuf to prepend to
+ * chain, copy junk along, and adjust length.
+ */
+struct mbuf *
+m_prepend_2(struct mbuf *m, int len, int how)
+{
+    if ( mbuf_leadingspace(m) >= len ) {
+        m->m_off -= len;
+        m->m_len += len;
+    } else {
+        m = m_prepend(m, len, how);
+    }
+    if ((m) && (m->m_flags & M_PKTHDR))
+        m->m_pkthdr.len += len;
+    return (m);
+}

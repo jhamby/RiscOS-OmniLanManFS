@@ -33,15 +33,6 @@
 #define DEBUGLIB_NOBRACKETS
 #include "DebugLib/DebugLib.h"
 
-#define MBCTL_NAME mbctl
-#include <sys/mbuf.h>
-
-/* Define globals from mbuf.c to use with the macros from TCP/IP's <sys/mbuf.h> */
-
-extern _kernel_oserror *mb_entryinit(void);
-extern _kernel_oserror *mb_close_session(void);
-extern void m_copyback(struct mbuf *m0, int off, int len, caddr_t cp);
-
 /* Redefine panic() and printf() as DebugLib dprintf() */
 
 #define printf(...) dprintf(__FILE__, __VA_ARGS__)

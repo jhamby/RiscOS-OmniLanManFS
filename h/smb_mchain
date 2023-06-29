@@ -88,10 +88,10 @@ int  mb_put_uint64le(mbchain_t , uint64_t );
 int  mb_put_mem(mbchain_t , const char * , size_t , int );
 int  mb_put_mbuf(mbchain_t , mbuf_t );
 
-#ifdef KERNEL
+#if defined(KERNEL) || defined(__riscos)
 void mbuf_cat_internal(mbuf_t md_top, mbuf_t m0);
-int  mb_put_uio(mbchain_t mbp, uio_t uiop, size_t size);
 #ifndef __riscos
+int  mb_put_uio(mbchain_t mbp, uio_t uiop, size_t size);
 int  mb_put_user_mem(mbchain_t mbp, user_addr_t bufp, int size, off_t offset, vfs_context_t context);
 #endif
 #endif // KERNEL
@@ -132,5 +132,7 @@ int  md_get_user_mem(mdchain_t mbp, user_addr_t bufp, int size, off_t offset, vf
 #endif
 #endif // KERNEL
 
+/* Allocate a chain of mbufs of the specified length. Called by sock_receivembuf. */
+mbuf_t smb_mbuf_getm(mbuf_t m, size_t len, int how, int type);
 
 #endif  /* !_SYS_MCHAIN_H_ */

@@ -16,8 +16,9 @@
 #
 
 COMPONENT    = LanManFS
-OBJS         = Interface LanManErr mbuf md4c md5c smb_subr #smb_mchain
-CINCLUDES    = ${TCPIPINC}
+OBJS         = Interface LanManErr mbuf md4c md5c smb_subr smb_mchain \
+		smb_socket smb_trantcp smb_fid Stats
+CINCLUDES    = ${TCPIPINC} -I<Lib$Dir>.SyncLib
 HDRS         =
 ASMHDRS      = LanManErr
 ASMCHDRS     = LanManErr
@@ -25,9 +26,9 @@ CMHGFILE     = LanMan_MH
 CMHGDEPENDS  = LanMan Logon Omni
 LIBS         = ${NET5LIBS} ${ASMUTILS} ${SYNCLIB}
 RES_PATH     = ThirdParty.OmniClient
-CDEFINES     = -DKERNEL ${OPTIONS}
+CDEFINES     = ${OPTIONS}
 CFLAGS       = ${C_NOWARN_NON_ANSI_INCLUDES}
-CDFLAGS      = -DDEBUG -DDEBUGLIB -DSMB_DEBUG -DNB_DEBUG
+CDFLAGS      = -DDEBUG -DDEBUGLIB -DSMB_DEBUG -DNB_DEBUG -DSMB_IOD_DEBUG
 ROMCDEFINES  = -DROM
 CMHGDEFINES  = ${OPTIONS}
 ifeq ("${CMDHELP}","None")

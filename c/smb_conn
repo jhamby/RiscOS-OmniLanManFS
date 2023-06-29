@@ -1023,7 +1023,7 @@ int smb_sm_tcon(struct smb_vc *vcp, struct smbioc_share *shspec,
      */
     error = smb_sm_lookupint(NULL, 0, NULL, 0, &vcp);
     if (error) {
-        SMBERROR("The virtual circtuit was not found: error = %d\n", error);
+        SMBERROR("The virtual circuit was not found: error = %d\n", error);
         return error;
     }
     /* At this point we have a locked vcp create the share */

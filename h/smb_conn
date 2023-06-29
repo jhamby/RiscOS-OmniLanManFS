@@ -34,11 +34,23 @@
  */
 #ifndef _SMB_CONN_H_
 #define _SMB_CONN_H_
+
+#ifdef __riscos
+
+#include "TCPIP.h"
+#include <sys/queue.h>
+#include "kauth.h"
+
+#include "smb_subr.h"
+#include "smb_fid.h"
+
+#else
 #ifndef _NETINET_IN_H_
 #include <sys/socket.h>
 #include <net/if.h>
 #include <netinet/in.h>
 #endif
+
 #include <sys/kauth.h>
 
 #ifdef _KERNEL
@@ -48,6 +60,7 @@
 #endif
 
 #include <libkern/OSTypes.h>
+#endif  /* __riscos */
 
 /*
  * Two levels of connection hierarchy
@@ -69,7 +82,7 @@
  * Common object flags
  *
  * Remember that vc_flags and ss_flags are defined to be co_flags,
- * so those flags can never reuse this value. 
+ * so those flags can never reuse this value.
  */
 #define SMBO_GONE       0x80000000
 
@@ -205,7 +218,7 @@ enum smbiod_state {
 /*
  * File system types ss_fstype
  */
-enum smb_fs_types { 
+enum smb_fs_types {
     SMB_FS_FAT = 0,             /* Fat file system */
     SMB_FS_CDFS = 1,            /* CD file system */
     SMB_FS_UDF = 2,             /* DVD file system */
@@ -215,8 +228,9 @@ enum smb_fs_types {
     SMB_FS_MAC_OS_X = 6         /* Mac OS X Server, SMB 2/3 or greater */
 };
 
-#ifdef _KERNEL
+#if defined(_KERNEL) || defined(__riscos)
 
+#ifndef __riscos
 #include <sys/lock.h>
 #include <netsmb/smb_subr.h>
 #include <netsmb/smb_fid.h>
@@ -224,6 +238,7 @@ enum smb_fs_types {
 struct smbioc_negotiate;
 struct smbioc_setup;
 struct smbioc_share;
+#endif
 
 TAILQ_HEAD(smb_rqhead, smb_rq);
 
@@ -276,23 +291,27 @@ for((var) = SMBLIST_FIRST(head, var);                  \
  * Data structure to access gssd for the use of SPNEGO/Kerberos
  */
 struct smb_gss {
-    mach_port_t gss_mp;         /* Mach port to gssd */
-    au_asid_t   gss_asid;       /* Audit session id to find gss_mp */
-    gssd_nametype   gss_target_nt;      /* Service's principal's name type */
-    uint32_t    gss_spn_len;        /* Service's principal's length */
-    uint8_t *   gss_spn;        /* Service's principal name */
-    gssd_nametype   gss_client_nt;      /* Client's principal's name type */
-    uint32_t    gss_cpn_len;        /* Client's principal's length */
-    uint8_t *   gss_cpn;        /* Client's principal name */
-    char *      gss_cpn_display;    /* String representation of client principal */
-    uint32_t    gss_tokenlen;       /* Gss token length */
-    uint8_t *   gss_token;      /* Gss token */
-    uint64_t    gss_ctx;        /* GSS opaque context handle */
-    uint64_t    gss_cred;       /* GSS opaque cred handle */
-    uint32_t    gss_rflags;     /* Flags returned from gssd */
-    uint32_t    gss_major;      /* GSS major error code */
-    uint32_t    gss_minor;      /* GSS minor (mech) error code */
-    uint32_t    gss_smb_error;      /* Last error returned by smb SetUpAndX */
+#ifndef __riscos
+    mach_port_t         gss_mp;                 /* Mach port to gssd */
+    au_asid_t           gss_asid;               /* Audit session id to find gss_mp */
+    gssd_nametype       gss_target_nt;          /* Service's principal's name type */
+#endif
+    uint32_t            gss_spn_len;            /* Service's principal's length */
+    uint8_t *           gss_spn;                /* Service's principal name */
+#ifndef __riscos
+    gssd_nametype       gss_client_nt;          /* Client's principal's name type */
+#endif
+    uint32_t            gss_cpn_len;            /* Client's principal's length */
+    uint8_t *           gss_cpn;                /* Client's principal name */
+    char *              gss_cpn_display;        /* String representation of client principal */
+    uint32_t            gss_tokenlen;           /* Gss token length */
+    uint8_t *           gss_token;              /* Gss token */
+    uint64_t            gss_ctx;                /* GSS opaque context handle */
+    uint64_t            gss_cred;               /* GSS opaque cred handle */
+    uint32_t            gss_rflags;             /* Flags returned from gssd */
+    uint32_t            gss_major;              /* GSS major error code */
+    uint32_t            gss_minor;              /* GSS minor (mech) error code */
+    uint32_t            gss_smb_error;          /* Last error returned by smb SetUpAndX */
 };
 
 /*
@@ -324,89 +343,89 @@ struct smb_gss {
 
 struct smb_vc {
     struct smb_connobj  obj;
-    char                *vc_srvname;        /* The server name used for tree connect, also used for logging */
+    char                *vc_srvname;            /* The server name used for tree connect, also used for logging */
     char                *vc_localname;
-    char                ipv4v6DotName[45+1];/* max IPv6 presentation len */
-    struct sockaddr     *vc_saddr;          /* server addr */
-    struct sockaddr     *vc_laddr;          /* local addr, if any, only used for port 139 */
+    char                ipv4v6DotName[45+1];    /* max IPv6 presentation len */
+    struct sockaddr     *vc_saddr;              /* server addr */
+    struct sockaddr     *vc_laddr;              /* local addr, if any, only used for port 139 */
     char                *vc_username;
-    char                *vc_pass;           /* password for usl case */
-    char                *vc_domain;         /* workgroup/primary domain */
+    char                *vc_pass;               /* password for usl case */
+    char                *vc_domain;             /* workgroup/primary domain */
     int32_t             vc_volume_cnt;
-    unsigned            vc_timo;            /* default request timeout */
-    int32_t             vc_number;          /* number of this VC from the client side */
-    uid_t               vc_uid;             /* user id of connection */
-    u_short             vc_smbuid;          /* unique vc id assigned by server */
-    u_char              vc_hflags;          /* or'ed with flags in the smb header */
-    u_short             vc_hflags2;         /* or'ed with flags in the smb header */
-    void                *vc_tdata;          /* transport control block */
+    unsigned            vc_timo;                /* default request timeout */
+    int32_t             vc_number;              /* number of this VC from the client side */
+    uid_t               vc_uid;                 /* user id of connection */
+    u_short             vc_smbuid;              /* unique vc id assigned by server */
+    u_char              vc_hflags;              /* or'ed with flags in the smb header */
+    u_short             vc_hflags2;             /* or'ed with flags in the smb header */
+    void                *vc_tdata;              /* transport control block */
     struct smb_tran_desc *vc_tdesc;
-    int                 vc_chlen;           /* actual challenge length */
+    int                 vc_chlen;               /* actual challenge length */
     u_char              vc_ch[SMB_MAXCHALLENGELEN];
-    uint16_t            vc_mid;             /* multiplex id */
-    uint16_t            vc_low_pid;         /* used for async requests only */
-    uuid_t              vc_client_guid;     /* SMB 2/3 client Guid for Neg req */
-    uint64_t            vc_message_id;      /* SMB 2/3 request message id */
-    uint32_t            vc_credits_granted; /* SMB 2/3 credits granted */
-    uint32_t            vc_credits_ss_granted; /* SMB 2/3 credits granted from session setup replies */
-    uint32_t            vc_credits_max;     /* SMB 2/3 max amount of credits server has granted us */
-    int32_t             vc_credits_wait;    /* SMB 2/3 credit wait */
-    uint32_t            vc_req_pending;     /* SMB 2/3 set if there is a pending request */
-    uint64_t            vc_oldest_message_id; /* SMB 2/3 oldest pending request message id */
+    uint16_t            vc_mid;                 /* multiplex id */
+    uint16_t            vc_low_pid;             /* used for async requests only */
+    uuid_t              vc_client_guid;         /* SMB 2/3 client Guid for Neg req */
+    uint64_t            vc_message_id;          /* SMB 2/3 request message id */
+    uint32_t            vc_credits_granted;     /* SMB 2/3 credits granted */
+    uint32_t            vc_credits_ss_granted;  /* SMB 2/3 credits granted from session setup replies */
+    uint32_t            vc_credits_max;         /* SMB 2/3 max amount of credits server has granted us */
+    int32_t             vc_credits_wait;        /* SMB 2/3 credit wait */
+    uint32_t            vc_req_pending;         /* SMB 2/3 set if there is a pending request */
+    uint64_t            vc_oldest_message_id;   /* SMB 2/3 oldest pending request message id */
     lck_mtx_t           vc_credits_lock;
-    uint64_t            vc_session_id;      /* SMB 2/3 session id */
-    uint64_t            vc_prev_session_id; /* SMB 2/3 prev sessID for reconnect */
-    uint64_t            vc_misc_flags;      /* SMB 2/3 misc flags */
-    struct smb_sopt     vc_sopt;            /* server options */
-    uint32_t            vc_txmax;           /* max tx/rx packet size */
-    uint32_t            vc_rxmax;           /* max readx data size */
-    uint32_t            vc_wxmax;           /* max writex data size */
+    uint64_t            vc_session_id;          /* SMB 2/3 session id */
+    uint64_t            vc_prev_session_id;     /* SMB 2/3 prev sessID for reconnect */
+    uint64_t            vc_misc_flags;          /* SMB 2/3 misc flags */
+    struct smb_sopt     vc_sopt;                /* server options */
+    uint32_t            vc_txmax;               /* max tx/rx packet size */
+    uint32_t            vc_rxmax;               /* max readx data size */
+    uint32_t            vc_wxmax;               /* max writex data size */
     struct smbiod       *vc_iod;
     lck_mtx_t           vc_stlock;
-    uint32_t            vc_seqno;           /* my next sequence number */
-    uint8_t             *vc_mackey;         /* MAC key */
-    uint32_t            vc_mackeylen;       /* length of MAC key */
-    
+    uint32_t            vc_seqno;               /* my next sequence number */
+    uint8_t             *vc_mackey;             /* MAC key */
+    uint32_t            vc_mackeylen;           /* length of MAC key */
+
     /* SMB 3 signing key (Session.SessionKey) */
     uint8_t             vc_smb3_signing_key[SMB3_KEY_LEN];
     uint32_t            vc_smb3_signing_key_len;
-    
+
     /* SMB 3 encryption key (Session.EncryptionKey) */
     /* A 128-bit key used for encrypting messages sent by the client */
     uint8_t             vc_smb3_encrypt_key[SMB3_KEY_LEN];
     uint32_t            vc_smb3_encrypt_key_len;
-    
+
     /* SMB 3 decryption key (Session.DecryptionKey) */
     /* A 128-bit key used for decrypting messages received from the server. */
     uint8_t             vc_smb3_decrypt_key[SMB3_KEY_LEN];
     uint32_t            vc_smb3_decrypt_key_len;
-    
+
     /* SMB 3 Nonce used for encryption */
     uint64_t            vc_smb3_nonce_high;
     uint64_t            vc_smb3_nonce_low;
-    
+
     uint32_t            reconnect_wait_time;    /* Amount of time to wait while reconnecting */
     uint32_t            *connect_flag;
     char                *NativeOS;
     char                *NativeLANManager;
-    uint32_t            negotiate_tokenlen; /* negotiate token length */
-    uint8_t             *negotiate_token;   /* negotiate token */
-    struct smb_gss      vc_gss;             /* Parameters for gssd */
+    uint32_t            negotiate_tokenlen;     /* negotiate token length */
+    uint8_t             *negotiate_token;       /* negotiate token */
+    struct smb_gss      vc_gss;                 /* Parameters for gssd */
     ntsid_t             vc_ntwrk_sid;
     void                *throttle_info;
-    uint64_t            vc_server_caps;     /* SMB 2/3 server capabilities */
-    uint64_t            vc_volume_caps;     /* SMB 2/3 volume capabilities*/
-    char                *vc_model_info;     /* SMB 2/3 server model string */
-    int32_t             vc_lease_key;       /* SMB 2/3 lease key incrementer to keep it unique */
-    uint32_t            vc_resp_wait_timeout; /* max time to wait for any response to arrive */
+    uint64_t            vc_server_caps;         /* SMB 2/3 server capabilities */
+    uint64_t            vc_volume_caps;         /* SMB 2/3 volume capabilities*/
+    char                *vc_model_info;         /* SMB 2/3 server model string */
+    int32_t             vc_lease_key;           /* SMB 2/3 lease key incrementer to keep it unique */
+    uint32_t            vc_resp_wait_timeout;   /* max time to wait for any response to arrive */
 };
 
 #define vc_maxmux   vc_sopt.sv_maxmux
 #define vc_flags    obj.co_flags
 
-#define SMB_UNICODE_STRINGS(vcp)    ((vcp)->vc_hflags2 & SMB_FLAGS2_UNICODE)
-#define VC_CAPS(a) ((a)->vc_sopt.sv_caps)
-#define UNIX_SERVER(a) (VC_CAPS(a) & SMB_CAP_UNIX)
+#define SMB_UNICODE_STRINGS(vcp)        ((vcp)->vc_hflags2 & SMB_FLAGS2_UNICODE)
+#define VC_CAPS(a)                      ((a)->vc_sopt.sv_caps)
+#define UNIX_SERVER(a)                  (VC_CAPS(a) & SMB_CAP_UNIX)
 
 /*
  * smb_share structure describes connection to the given SMB share (tree).
@@ -422,29 +441,29 @@ typedef int ss_down_t (struct smb_share *share, int timeToNotify);
 
 struct smb_share {
     struct smb_connobj obj;
-    lck_mtx_t       ss_stlock;  /* Used to lock the flags field only */
+    lck_mtx_t       ss_stlock;                  /* Used to lock the flags field only */
     char            *ss_name;
-    struct smbmount *ss_mount;  /* used for smb up/down */
+    struct smbmount *ss_mount;                  /* used for smb up/down */
     ss_going_away_t *ss_going_away;
     ss_dead_t       *ss_dead;
     ss_down_t       *ss_down;
     ss_up_t         *ss_up;
-    lck_mtx_t       ss_shlock;  /* used to protect ss_mount */ 
-    uint32_t        ss_dead_timer;  /* Time to wait before this share should be marked dead, zero means never */
-    uint32_t        ss_soft_timer;  /* Time to wait before this share should return time out errors, zero means never */
-    u_short         ss_tid;         /* Tree ID for SMB 1 */
-    uint32_t        ss_tree_id;     /* Tree ID for SMB 2/3 */
-    uint32_t        ss_share_type;  /* Tree share type for SMB 2/3 */
-    uint32_t        ss_share_flags; /* Tree share flags for SMB 2/3 */
-    uint32_t        ss_share_caps;  /* Tree share capabilities for SMB 2/3 */
-    uint64_t        ss_unix_caps;   /* Unix capabilites are per share not VC */
-    enum smb_fs_types ss_fstype;    /* File system type of the share */
-    uint32_t        ss_attributes;  /* File System Attributes */
+    lck_mtx_t       ss_shlock;                  /* used to protect ss_mount */
+    uint32_t        ss_dead_timer;              /* Time to wait before this share should be marked dead, zero means never */
+    uint32_t        ss_soft_timer;              /* Time to wait before this share should return time out errors, zero means never */
+    u_short         ss_tid;                     /* Tree ID for SMB 1 */
+    uint32_t        ss_tree_id;                 /* Tree ID for SMB 2/3 */
+    uint32_t        ss_share_type;              /* Tree share type for SMB 2/3 */
+    uint32_t        ss_share_flags;             /* Tree share flags for SMB 2/3 */
+    uint32_t        ss_share_caps;              /* Tree share capabilities for SMB 2/3 */
+    uint64_t        ss_unix_caps;               /* Unix capabilites are per share not VC */
+    enum smb_fs_types ss_fstype;                /* File system type of the share */
+    uint32_t        ss_attributes;              /* File System Attributes */
     uint32_t        ss_maxfilenamelen;
     uint16_t        optionalSupport;
-    uint32_t        maxAccessRights;    /* SMB 1 and SMB 2/3 */
+    uint32_t        maxAccessRights;            /* SMB 1 and SMB 2/3 */
     uint32_t        maxGuestAccessRights;
-    
+
     /* SMB 2/3 FID mapping support */
     lck_mtx_t       ss_fid_lock;
     uint64_t        ss_fid_collisions;
@@ -465,14 +484,14 @@ struct smb_share {
  */
 int smb_sm_init(void);
 int smb_sm_done(void);
-int smb_sm_negotiate(struct smbioc_negotiate *vcspec, vfs_context_t context, 
+int smb_sm_negotiate(struct smbioc_negotiate *vcspec, vfs_context_t context,
                      struct smb_vc **vcpp, struct smb_dev *sdp, int searchOnly);
-int smb_sm_ssnsetup(struct smb_vc *vcp, struct smbioc_setup * sspec, 
+int smb_sm_ssnsetup(struct smb_vc *vcp, struct smbioc_setup * sspec,
                     vfs_context_t context);
-int smb_sm_tcon(struct smb_vc *vcp, struct smbioc_share *sspec, 
+int smb_sm_tcon(struct smb_vc *vcp, struct smbioc_share *sspec,
                 struct smb_share **shpp, vfs_context_t context);
 uint32_t smb_vc_caps(struct smb_vc *vcp);
-void parse_server_os_lanman_strings(struct smb_vc *vcp, void *refptr, 
+void parse_server_os_lanman_strings(struct smb_vc *vcp, void *refptr,
                                     uint16_t bc);
 
 /*
@@ -505,22 +524,22 @@ int  smb_smb_ssnsetup(struct smb_vc *vcp, int inReconnect, vfs_context_t context
 int  smb_smb_ssnclose(struct smb_vc *vcp, vfs_context_t context);
 int  smb_smb_treeconnect(struct smb_share *share, vfs_context_t context);
 int  smb_smb_treedisconnect(struct smb_share *share, vfs_context_t context);
-int  smb1_read(struct smb_share *share, SMBFID fid, uio_t uio, 
+int  smb1_read(struct smb_share *share, SMBFID fid, uio_t uio,
               vfs_context_t context);
-int  smb1_write(struct smb_share *share, SMBFID fid, uio_t uio, int ioflag, 
+int  smb1_write(struct smb_share *share, SMBFID fid, uio_t uio, int ioflag,
                vfs_context_t context);
-int  smb1_echo(struct smb_vc *vcp, int timo, uint32_t EchoCount, 
+int  smb1_echo(struct smb_vc *vcp, int timo, uint32_t EchoCount,
               vfs_context_t context);
-int  smb_checkdir(struct smb_share *share, struct smbnode *dnp, 
+int  smb_checkdir(struct smb_share *share, struct smbnode *dnp,
                   const char *name, size_t nmlen, vfs_context_t context);
 
-#define SMBIOD_INTR_TIMO        2       
-#define SMBIOD_SLEEP_TIMO       2       
+#define SMBIOD_INTR_TIMO        2
+#define SMBIOD_SLEEP_TIMO       2
 #define SMB_SEND_WAIT_TIMO      60 * 2  /* How long should we wait for the server to response to a request. */
 #define SMB_RESP_WAIT_TIMO      30      /* How long should we wait for the server to response to any request. */
 
 /*
- * After this many seconds we want an unresponded-to request to trigger 
+ * After this many seconds we want an unresponded-to request to trigger
  * some sort of UE (dialogue).  If the connection hasn't responded at all
  * in this many seconds then the dialogue is of the "connection isn't
  * responding would you like to force unmount" variety.  If the connection
@@ -540,39 +559,39 @@ int  smb_checkdir(struct smb_share *share, struct smbnode *dnp,
 #define HARD_DEAD_TIMER         10 * 60 /* Seconds until we force unmount a hard mount (ie its dead) */
 #define TRIGGER_DEAD_TIMEOUT    30      /* Seconds until we force unmount a trigger mount (ie its dead) */
 
-#define SMB_IOD_EVLOCKPTR(iod)  (&((iod)->iod_evlock))
-#define SMB_IOD_EVLOCK(iod)     lck_mtx_lock(&((iod)->iod_evlock))
-#define SMB_IOD_EVUNLOCK(iod)   lck_mtx_unlock(&((iod)->iod_evlock))
+#define SMB_IOD_EVLOCKPTR(iod)          (&((iod)->iod_evlock))
+#define SMB_IOD_EVLOCK(iod)             lck_mtx_lock(&((iod)->iod_evlock))
+#define SMB_IOD_EVUNLOCK(iod)           lck_mtx_unlock(&((iod)->iod_evlock))
 
-#define SMB_IOD_RQLOCKPTR(iod)  (&((iod)->iod_rqlock))
-#define SMB_IOD_RQLOCK(iod)     lck_mtx_lock(&((iod)->iod_rqlock))
-#define SMB_IOD_RQUNLOCK(iod)   lck_mtx_unlock(&((iod)->iod_rqlock))
+#define SMB_IOD_RQLOCKPTR(iod)          (&((iod)->iod_rqlock))
+#define SMB_IOD_RQLOCK(iod)             lck_mtx_lock(&((iod)->iod_rqlock))
+#define SMB_IOD_RQUNLOCK(iod)           lck_mtx_unlock(&((iod)->iod_rqlock))
 
 #define SMB_IOD_FLAGSLOCKPTR(iod)       (&((iod)->iod_flagslock))
 #define SMB_IOD_FLAGSLOCK(iod)          lck_mtx_lock(&((iod)->iod_flagslock))
 #define SMB_IOD_FLAGSUNLOCK(iod)        lck_mtx_unlock(&((iod)->iod_flagslock))
 
-#define smb_iod_wakeup(iod)     wakeup(&(iod)->iod_flags)
+#define smb_iod_wakeup(iod)             wakeup(&(iod)->iod_flags)
 
 /*
  * smbiod thread
  */
 
-/* 
- * Event type (ev_type) must be less than 0xff 
+/*
+ * Event type (ev_type) must be less than 0xff
  * Upper bits are used to setting Sync and Processing
  */
-#define SMBIOD_EV_NEWRQ     0x0001
-#define SMBIOD_EV_SHUTDOWN  0x0002
-#define SMBIOD_EV_FORCE_RECONNECT 0x0003
-#define SMBIOD_EV_DISCONNECT 0x0004
+#define SMBIOD_EV_NEWRQ                 0x0001
+#define SMBIOD_EV_SHUTDOWN              0x0002
+#define SMBIOD_EV_FORCE_RECONNECT       0x0003
+#define SMBIOD_EV_DISCONNECT            0x0004
 /* 0x0005 available for use */
-#define SMBIOD_EV_NEGOTIATE 0x0006
-#define SMBIOD_EV_SSNSETUP  0x0007
+#define SMBIOD_EV_NEGOTIATE             0x0006
+#define SMBIOD_EV_SSNSETUP              0x0007
 
-#define SMBIOD_EV_MASK      0x00ff
-#define SMBIOD_EV_SYNC      0x0100
-#define SMBIOD_EV_PROCESSING    0x0200
+#define SMBIOD_EV_MASK                  0x00ff
+#define SMBIOD_EV_SYNC                  0x0100
+#define SMBIOD_EV_PROCESSING            0x0200
 
 struct smbiod_event {
     int ev_type;
@@ -591,23 +610,23 @@ struct smbiod {
     int                 iod_id;
     int                 iod_flags;
     enum smbiod_state   iod_state;
-    lck_mtx_t           iod_flagslock;  /* iod_flags */
+    lck_mtx_t           iod_flagslock;          /* iod_flags */
     /* number of active outstanding requests (keep it signed!) */
     int64_t             iod_muxcnt;
     /* number of active outstanding async requests (keep it signed!) */
-    int32_t             iod_asynccnt;   
+    int32_t             iod_asynccnt;
     struct timespec     iod_sleeptimespec;
     struct smb_vc *     iod_vc;
-    lck_mtx_t           iod_rqlock;     /* iod_rqlist, iod_muxwant */
-    struct smb_rqhead   iod_rqlist;     /* list of outstanding requests */
+    lck_mtx_t           iod_rqlock;             /* iod_rqlist, iod_muxwant */
+    struct smb_rqhead   iod_rqlist;             /* list of outstanding requests */
     int                 iod_muxwant;
     vfs_context_t       iod_context;
-    lck_mtx_t           iod_evlock;     /* iod_evlist */
+    lck_mtx_t           iod_evlock;             /* iod_evlist */
     STAILQ_HEAD(,smbiod_event) iod_evlist;
     struct timespec     iod_lastrqsent;
     struct timespec     iod_lastrecv;
-    int                 iod_workflag;   /* should be protected with lock */
-    struct timespec     reconnectStartTime; /* Time when the reconnect was started */
+    int                 iod_workflag;           /* should be protected with lock */
+    struct timespec     reconnectStartTime;     /* Time when the reconnect was started */
 };
 
 int  smb_iod_nb_intr(struct smb_vc *vcp);
@@ -623,6 +642,7 @@ int  smb_iod_waitrq(struct smb_rq *rqp);
 int  smb_iod_removerq(struct smb_rq *rqp);
 void smb_iod_errorout_share_request(struct smb_share *share, int error);
 
+#ifndef __riscos
 extern lck_grp_attr_t *co_grp_attr;
 extern lck_grp_t *co_lck_group;
 extern lck_attr_t *co_lck_attr;
@@ -658,6 +678,7 @@ extern lck_attr_t *iodev_lck_attr;
 extern lck_grp_attr_t *srs_grp_attr;
 extern lck_grp_t *srs_lck_group;
 extern lck_attr_t *srs_lck_attr;
+#endif  /* __riscos */
 
-#endif /* _KERNEL */
+#endif /* _KERNEL || __riscos */
 #endif // _SMB_CONN_H_

@@ -2,14 +2,14 @@
  * Copyright (c) 2011 - 2012 Apple Inc. All rights reserved.
  *
  * @APPLE_LICENSE_HEADER_START@
- * 
+ *
  * This file contains Original Code and/or Modifications of Original Code
  * as defined in and that are subject to the Apple Public Source License
  * Version 2.0 (the 'License'). You may not use this file except in
  * compliance with the License. Please obtain a copy of the License at
  * http://www.opensource.apple.com/apsl/ and read it before using this
  * file.
- * 
+ *
  * The Original Code and all software distributed under the License are
  * distributed on an 'AS IS' basis, WITHOUT WARRANTY OF ANY KIND, EITHER
  * EXPRESS OR IMPLIED, AND APPLE HEREBY DISCLAIMS ALL SUCH WARRANTIES,
@@ -17,24 +17,24 @@
  * FITNESS FOR A PARTICULAR PURPOSE, QUIET ENJOYMENT OR NON-INFRINGEMENT.
  * Please see the License for the specific language governing rights and
  * limitations under the License.
- * 
+ *
  * @APPLE_LICENSE_HEADER_END@
  */
 
 #ifndef _NETSMB_CONN_2_H_
 #define _NETSMB_CONN_2_H_
 
-#ifdef _KERNEL
+#if defined(_KERNEL) || defined(__riscos)
 
-int smb2_smb_change_notify(struct smb_share *share, void *args_ptr, 
+int smb2_smb_change_notify(struct smb_share *share, void *args_ptr,
                            struct smb_rq **in_rqp, vfs_context_t context);
-int smb2_smb_close(struct smb_share *share, void *arg_ptr, 
+int smb2_smb_close(struct smb_share *share, void *arg_ptr,
                    struct smb_rq **compound_rqp, vfs_context_t context);
 int smb2_smb_close_fid(struct smb_share *share, SMBFID fid,
                        struct smb_rq **compound_rqp,
                        struct smb2_close_rq **in_closep,
                        vfs_context_t context);
-int smb2_smb_create(struct smb_share *share, void *arg_ptr, 
+int smb2_smb_create(struct smb_share *share, void *arg_ptr,
                     struct smb_rq **compound_rqp, vfs_context_t context);
 int smb2_smb_dur_handle_init(struct smb_share *share, struct smbnode *np,
                              struct smb2_durable_handle *dur_handle);
@@ -50,7 +50,7 @@ uint32_t smb2_smb_get_client_dialects(struct smb_vc *vcp, int inReconnect,
 uint16_t smb2_smb_get_client_security_mode(struct smb_vc *vcp);
 int smb2_smb_gss_session_setup(struct smb_vc *vcp, uint16_t *session_flags,
                                vfs_context_t context);
-int smb2_smb_ioctl(struct smb_share *share, void *arg_ptr, 
+int smb2_smb_ioctl(struct smb_share *share, void *arg_ptr,
                    struct smb_rq **compound_rqp, vfs_context_t context);
 int smb2_smb_lease_break_ack(struct smb_share *share, uint64_t lease_key_hi, uint64_t lease_key_low,
                              uint32_t lease_state, uint32_t *ret_lease_state, vfs_context_t context);
@@ -59,7 +59,7 @@ int smb2_smb_lock(struct smb_share *share, int op, SMBFID fid,
 int smb2_smb_negotiate(struct smb_vc *vcp, struct smb_rq *rqp,
                        int inReconnect, vfs_context_t user_context,
                        vfs_context_t context);
-int smb_smb_negotiate(struct smb_vc *vcp, vfs_context_t user_context, 
+int smb_smb_negotiate(struct smb_vc *vcp, vfs_context_t user_context,
                       int inReconnect, vfs_context_t context);
 int smb_smb_nomux(struct smb_vc *vcp, const char *name, vfs_context_t context);
 int smb2_smb_parse_change_notify(struct smb_rq *rqp, uint32_t *events);
@@ -91,7 +91,7 @@ int smb2_smb_parse_write_one(struct mdchain *mdp,
                              struct smb2_rw_rq *writep);
 int smb2_smb_query_dir(struct smb_share *share, void *args_ptr,
                        struct smb_rq **compound_rqp, vfs_context_t context);
-int smb2_smb_query_info(struct smb_share *share, void *args_ptr, 
+int smb2_smb_query_info(struct smb_share *share, void *args_ptr,
                         struct smb_rq **compound_rqp, vfs_context_t context);
 int smb2_smb_read_one(struct smb_share *share,
                       struct smb2_rw_rq *readp,
@@ -99,16 +99,16 @@ int smb2_smb_read_one(struct smb_share *share,
                       user_ssize_t *rresid,
                       struct smb_rq **compound_rqp,
                       vfs_context_t context);
-int smb2_smb_read(struct smb_share *share, void *arg_ptr, 
+int smb2_smb_read(struct smb_share *share, void *arg_ptr,
                   vfs_context_t context);
-int smb_smb_read(struct smb_share *share, SMBFID fid, uio_t uio, 
+int smb_smb_read(struct smb_share *share, SMBFID fid, uio_t uio,
                  vfs_context_t context);
 int smb2_smb_set_info(struct smb_share *share, void *args_ptr,
                       struct smb_rq **compound_rqp, vfs_context_t context);
 int smb1_smb_ssnclose(struct smb_vc *vcp, vfs_context_t context);
 int smb_smb_ssnclose(struct smb_vc *vcp, vfs_context_t context);
 int smb2_smb_tree_connect(struct smb_vc *vcp, struct smb_share *share,
-                          const char *serverName, size_t serverNameLen, 
+                          const char *serverName, size_t serverNameLen,
                           vfs_context_t context);
 int smb1_smb_treedisconnect(struct smb_share *share, vfs_context_t context);
 int smb_smb_treedisconnect(struct smb_share *share, vfs_context_t context);
@@ -125,5 +125,5 @@ int smb_smb_write(struct smb_share *share, SMBFID fid, uio_t uio, int ioflag,
 
 
 
-#endif /* _KERNEL */
+#endif /* _KERNEL || __riscos */
 #endif /* _NETSMB_CONN_2_H_ */

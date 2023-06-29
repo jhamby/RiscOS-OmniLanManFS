@@ -30,9 +30,10 @@ extern int  Stat_ClassMask;
 #define SCLASS_IP      2
 
 #define STA_SERIOUS_BARF                0
-#define STA_IP_EVENTS                   1
-#define STA_IP_RXDGRAM                  2
-#define STA_MAXSTATS                    3
+#define STA_CONNECT_FAILED              1
+#define STA_SOCKET_EVENT                2
+#define STA_REMOTE_CLOSED               3
+#define STA_MAXSTATS                    (STA_REMOTE_CLOSED + 1)
 
 extern int Stat_StatTable [STA_MAXSTATS];
 

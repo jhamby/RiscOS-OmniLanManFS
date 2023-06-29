@@ -31,13 +31,14 @@ F1      FSErr   BadOSVer, LanManFS requires RISC OS 3.00 or later
 F2      FSErr   BadCmdLine, Bad LanManFS command line
 F3      FSErr   InitFailed, Initialisation failed
 F4      FSErr   IntError, LanManFS internal error
+F5      FSErr   OutOfMemory, Memory allocation failed
 
         ; Define additional SMB errors, starting at &40
         ; NTSTATUS errors not covered by existing FileCore errors
 
 40      FSErr   BadLogonType, Logon type not granted to this account
 41      FSErr   NoLogonServers, Server can't talk to domain controller
-42      FSErr   MemError, Server memory access error
+42      FSErr   ServerException, Server software exception
 43      FSErr   AcctDisabled, Account disabled
 44      FSErr   AcctRestricted, Account restricted
 45      FSErr   BadLoginTime, Login time restriction
@@ -70,7 +71,7 @@ F4      FSErr   IntError, LanManFS internal error
 60      FSErr   ProtocolError, Network protocol error
 61      FSErr   EndOfFile, End of file
 62      FSErr   FileIsDir, File is a directory
-63      FSErr   ServerException, Server software exception
+63      FSErr   IsConnected, Socket is already connected
 64      FSErr   BadPwdFormat, Ill-formed password
 65      FSErr   BadHandle, Invalid handle
 66      FSErr   BadParam, Invalid parameter
@@ -99,6 +100,7 @@ F4      FSErr   IntError, LanManFS internal error
 7D      FSErr   PrintQueueFull, Print queue is full
 7E      FSErr   PrintPaperEmpty, Printer is out of paper
 7F      FSErr   IOError, I/O error
+80      FSErr   NotConnected, Socket is not connected
 
         ; File footer
         =       10, "        END", 10

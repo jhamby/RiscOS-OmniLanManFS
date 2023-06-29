@@ -96,7 +96,7 @@ struct gssdProxyPB
     uint32_t    minor_stat;     // out
 };
 
-#ifdef KERNEL
+#if defined(KERNEL) || defined(__riscos)
 
 struct user_gssdProxyPB
 {
@@ -186,7 +186,7 @@ struct smb_remount_info {
     char        mntURL[MAXPATHLEN] __attribute((aligned(8)));
 };
 
-#ifdef KERNEL
+#if defined(KERNEL) || defined(__riscos)
 
 /* The items the mount point keeps in memory */
 struct smbfs_args {
@@ -416,6 +416,6 @@ enum {
 };
 #endif  /* !__riscos */
 
-#endif  /* KERNEL */
+#endif  /* KERNEL || __riscos */
 
 #endif /* _SMBFS_SMBFS_H_ */

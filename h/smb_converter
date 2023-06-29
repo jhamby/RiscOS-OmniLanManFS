@@ -46,7 +46,7 @@
  */
 #define SMB_FULLPATH_CONVERSIONS    0x0100
 
-#ifdef KERNEL
+#if defined(KERNEL) || defined(__riscos)
 #ifndef __riscos
 #include <sys/utfconv.h>
 #endif
@@ -64,6 +64,6 @@ int smb_convert_path_to_network(char *path, size_t max_path_len, char *network,
 int smb_convert_network_to_path(char *network, size_t max_ntwrk_len, char *path,
                             size_t *path_len, char ntwrk_delimiter, int flags,
                             int usingUnicode);
-#endif // KERNEL
+#endif // KERNEL || __riscos
 
 #endif // _SMB_CONVERTER_H_

@@ -1,0 +1,622 @@
+/* Copyright 2023 Jake Hamby
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/*
+ * RISC OS implementation of the xnu kernel sockets functions used by SMBX.
+ */
+
+#include <mutex.h>
+#include "kernel.h"
+#include "os.h"
+#include "swis.h"
+
+#include "Interface/RTSupport.h"
+
+#include "smb_riscos.h"
+#include "smb_socket.h"
+#include "smb_subr.h"
+#include "smb_mchain.h"
+#include "smb_trantcp.h"
+
+#include "Stats.h"
+#include "TCPIP.h"
+
+#define EventV          0x10
+
+typedef enum
+{
+    SOCK_NOT_READY,    /* file descriptor isn't valid */
+    SOCK_DISCONNECTED, /* socket is closed */
+    SOCK_CONNECTING,
+    SOCK_CONNECTED
+} smb_socket_state;
+
+struct smb_socket
+{
+    int so_fd;                 /* socket file descriptor */
+    smb_socket_state so_state; /* socket state */
+    int so_pollword;           /* poll word to wake any waiting recv/send */
+    sock_upcall so_callback;   /* callback function */
+    void *so_cookie;           /* callback client data */
+    socket_t so_next;          /* next socket with table collision */
+};
+
+/* Limit our iovec size so the TCP/IP stack won't have to malloc */
+#ifndef UIO_SMALLIOV
+#define UIO_SMALLIOV 8
+#endif
+
+/* Use a small table to quickly find open sockets by fd. */
+
+#define SOCK_FD_TABLE_SIZE 64
+#define SOCK_FD_TABLE_MASK (SOCK_FD_TABLE_SIZE - 1)
+
+/* Lookup table for allocated smb_socket structs. */
+static socket_t smb_socket_table[SOCK_FD_TABLE_SIZE] = {NULL};
+
+/* Global socket lock (to prevent any confusion about errno values). */
+static mutex_t smb_socket_lock = MUTEX_UNLOCKED;
+
+errno_t
+sock_socket(int domain, int type, int protocol, sock_upcall callback,
+            void *cookie, socket_t *new_so)
+{
+    socket_t so = malloc(sizeof(struct smb_socket));
+    if (so == NULL)
+        return ENOMEM;
+
+    mutex_sleep_lock(&smb_socket_lock);
+    so->so_fd = socket(domain, type, protocol);
+    if (so->so_fd == -1)
+    {
+        int err = errno;
+        mutex_unlock(&smb_socket_lock);
+        SMBERROR("sock_socket socket call failed errno %d\n", err);
+        free(so);
+        return err;
+    }
+
+    int on = 1;
+    if (socketioctl(so->so_fd, FIOASYNC, &on) < 0)
+    {
+        int err = errno;
+        mutex_unlock(&smb_socket_lock);
+        SMBERROR("sock_socket set FIOASYNC failed for fd %d, errno %d\n",
+                 so->so_fd, err);
+        free(so);
+        return err;
+    }
+
+    if (socketioctl(so->so_fd, FIONBIO, &on) < 0)
+    {
+        int err = errno;
+        mutex_unlock(&smb_socket_lock);
+        SMBERROR("sock_socket set FIONBIO failed for fd %d, errno %d\n",
+                 so->so_fd, err);
+        free(so);
+        return err;
+    }
+
+    so->so_state = SOCK_DISCONNECTED;
+    so->so_pollword = 0;
+    so->so_callback = callback;
+    so->so_cookie = cookie;
+
+    /* Use bitmask for hash function, sockets are assigned sequentially. */
+    uint32_t so_fd_hash = so->so_fd & SOCK_FD_TABLE_MASK;
+
+    if (smb_socket_table[so_fd_hash] != NULL)
+        so->so_next = smb_socket_table[so_fd_hash];
+    else
+        so->so_next = NULL;
+
+    smb_socket_table[so_fd_hash] = so;
+    mutex_unlock(&smb_socket_lock);
+
+    /* Success! */
+    *new_so = so;
+    return 0;
+}
+
+errno_t
+sock_connect(socket_t so, const struct sockaddr *to, int flags)
+{
+    (void) flags; /* Ignored */
+
+    mutex_sleep_lock(&smb_socket_lock);
+    if (so->so_state != SOCK_DISCONNECTED)
+    {
+        mutex_unlock(&smb_socket_lock);
+        SMBERROR("sock_connect called for fd %d, but state is %d\n",
+                 so->so_fd, so->so_state);
+
+        return EISCONN;
+    }
+
+    /* Q: is it possible to configure the connect() timeout?
+     * SMBX wants to call sock_connect() to start a non-blocking
+     * connect, then call sock_connectwait() with a 2 sec timeout.
+     */
+
+    so->so_state = SOCK_CONNECTING;
+    if (connect(so->so_fd, to, sizeof(struct sockaddr_in)))
+    {
+        int err = errno;
+        mutex_unlock(&smb_socket_lock);
+        SMBDEBUG("sock_connect connect failed for fd %d, errno %d\n",
+                 so->so_fd, err);
+
+        STAT(STA_CONNECT_FAILED);
+        so->so_state = SOCK_DISCONNECTED;
+        return err;
+    }
+    so->so_state = SOCK_CONNECTED;
+
+    mutex_unlock(&smb_socket_lock);
+    return 0;
+}
+
+errno_t
+sock_shutdown(socket_t so, int how)
+{
+    mutex_sleep_lock(&smb_socket_lock);
+    if (so->so_state != SOCK_CONNECTED)
+    {
+        SMBERROR("sock_shutdown called for fd %d, but state is %d\n",
+                 so->so_fd, so->so_state);
+
+        mutex_unlock(&smb_socket_lock);
+        return ENOTCONN;
+    }
+
+    so->so_state = SOCK_DISCONNECTED;
+    if (shutdown(so->so_fd, how))
+    {
+        int err = errno;
+        mutex_unlock(&smb_socket_lock);
+        SMBWARNING("sock_shutdown shutdown(%d, %d) failed, errno %d\n",
+                   so->so_fd, how, err);
+        return err;
+    }
+
+    mutex_unlock(&smb_socket_lock);
+    return 0;
+}
+
+void sock_close(socket_t so)
+{
+    mutex_sleep_lock(&smb_socket_lock);
+
+    if (socketclose(so->so_fd))
+    {
+        SMBWARNING("sock_close socketclose(%d) failed, errno %d\n",
+                   so->so_fd, errno);
+
+        /* Continue deleting the struct */
+    }
+
+    so->so_state = SOCK_DISCONNECTED;
+
+    /* Remove from the table and then free. */
+
+    uint32_t so_fd_hash = so->so_fd & SOCK_FD_TABLE_MASK;
+    socket_t *entry = &smb_socket_table[so_fd_hash];
+
+    while (*entry && *entry != so)
+        entry = &((*entry)->so_next);
+
+    if (*entry == NULL)
+    {
+        SMBERROR("sock_close can't find fd %d in lookup table\n", so->so_fd);
+    }
+    else
+    {
+        /* Replace with the next entry in the hash chain, if any. */
+        *entry = so->so_next;
+    }
+
+    mutex_unlock(&smb_socket_lock);
+    free(so);
+}
+
+int sock_isconnected(socket_t so)
+{
+    /* Let's assume that our cached socket state is reasonably accurate. */
+    return (so->so_state == SOCK_CONNECTED);
+}
+
+errno_t
+sock_getsockopt(socket_t so, int level, int optname, void *optval, int *optlen)
+{
+    mutex_sleep_lock(&smb_socket_lock);
+    int err = getsockopt(so->so_fd, level, optname, optval, optlen)
+                  ? errno
+                  : 0;
+    mutex_unlock(&smb_socket_lock);
+    return err;
+}
+
+errno_t
+sock_setsockopt(socket_t so, int level, int optname, const void *optval, int optlen)
+{
+    mutex_sleep_lock(&smb_socket_lock);
+    int err = setsockopt(so->so_fd, level, optname, optval, optlen)
+                  ? errno
+                  : 0;
+    mutex_unlock(&smb_socket_lock);
+    return err;
+}
+
+/* Note: SMBX always calls this with an iov of length 1. */
+errno_t
+sock_receive(socket_t so, struct msghdr *msg, int flags, size_t *recvdlen)
+{
+    size_t recv_local = 0;
+    void *base = msg->msg_iov->iov_base;
+    size_t remain = msg->msg_iov->iov_len;
+
+    uint32_t timeout = _swi(OS_ReadMonotonicTime, _RETURN(0)) + (SMBSBTIMO * 100);
+    int err = 0;
+
+    mutex_sleep_lock(&smb_socket_lock);
+    while (remain > 0)
+    {
+        ssize_t read_size = socketread(so->so_fd, base, remain);
+        err = (read_size < 0) ? errno : 0;
+
+        if (err)
+        {
+            /* Fail on any error other than EINTR / EAGAIN */
+            if (err != EINTR && err != EAGAIN)
+            {
+                SMBERROR("sock_receive socketread failed, errno %d\n",
+                         err);
+                break;
+            }
+
+            /* Return unless MSG_WAITALL flag was set. */
+            if (!(flags & MSG_WAITALL))
+                break;
+
+            /* Check for timeout before sleeping */
+            if (_swi(OS_ReadMonotonicTime, _RETURN(0)) > timeout)
+            {
+                SMBWARNING("sock_receive timeout, %d bytes remaining\n",
+                           remain);
+                err = EAGAIN;
+                break;
+            }
+
+            /* Sleep until timeout or poll word becomes non-zero */
+            so->so_pollword = 0;
+            mutex_unlock(&smb_socket_lock);
+            _swix(RT_TimedYield, _INR(1,2), &(so->so_pollword), timeout);
+            mutex_sleep_lock(&smb_socket_lock);
+        }
+        else if (read_size == 0)
+        {
+            /* End-of-file means remote has likely disconnected */
+            so->so_state = SOCK_DISCONNECTED;
+            SMBDEBUG("sock_receivembuf read 0 bytes, remote closed?\n");
+            break;
+        }
+        else
+        {
+            recv_local += read_size;
+            remain -= read_size;
+            base = (uint8_t *)(base) + read_size;
+        }
+    }
+
+    mutex_unlock(&smb_socket_lock);
+    *recvdlen = recv_local;
+    return err;
+}
+
+/* Note: SMBX always passes NULL for msg and MSG_WAITALL for flags. */
+errno_t
+sock_receivembuf(socket_t so, struct msghdr *msg, mbuf_t *data, int flags,
+                 size_t *recvlen)
+{
+    (void) msg; /* Ignored */
+    (void) flags; /* Ignored */
+
+    size_t remain = *recvlen;
+
+    mbuf_t mb = smb_mbuf_getm(NULL, remain, MBUF_WAITOK, MBUF_TYPE_DATA);
+    if (mb == NULL)
+    {
+        SMBERROR("sock_receivembuf failed to get %d mbuf bytes\n", remain);
+        return ENOBUFS;
+    }
+    *data = mb;
+
+    struct iovec iov[UIO_SMALLIOV];
+    size_t recv_local = 0;
+    uint32_t timeout = _swi(OS_ReadMonotonicTime, _RETURN(0)) + (SMBSBTIMO * 100);
+
+    while (remain > 0)
+    {
+        if (!mb)
+        {
+            SMBERROR("sock_receivembuf ran out of mbuf space for %d bytes\n",
+                     remain);
+            return ENOBUFS;
+        }
+
+        int chunk_size = 0;
+        int iov_len = 0;
+        while (remain > 0 && iov_len < UIO_SMALLIOV && mb)
+        {
+            iov[iov_len].iov_base = mbuf_data(mb);
+            size_t space = mbuf_trailingspace(mb);
+            size_t used_space = min(space, remain);
+            iov[iov_len].iov_len = used_space;
+            ++iov_len;
+
+            remain -= used_space;
+            chunk_size += used_space;
+            mbuf_setlen(mb, used_space);
+            mb = mbuf_next(mb);
+        }
+
+        mutex_sleep_lock(&smb_socket_lock);
+        struct iovec *iov_idx = iov;
+        while (chunk_size > 0)
+        {
+            ssize_t read_size = socketreadv(so->so_fd, iov_idx, iov_len);
+            int err = (read_size < 0) ? errno : 0;
+            if (err)
+            {
+                /* Fail on any error other than EINTR / EAGAIN */
+                if (err != EINTR && err != EAGAIN)
+                {
+                    mutex_unlock(&smb_socket_lock);
+                    SMBERROR("sock_receivembuf socketreadv failed, errno %d\n",
+                             err);
+                    *recvlen = recv_local;
+                    return err;
+                }
+
+                /* Check for timeout before sleeping */
+                if (_swi(OS_ReadMonotonicTime, _RETURN(0)) > timeout)
+                {
+                    mutex_unlock(&smb_socket_lock);
+                    SMBWARNING("sock_receivembuf timeout, %d bytes remaining\n",
+                               remain);
+                    *recvlen = recv_local;
+                    return EAGAIN;
+                }
+
+                /* Sleep until timeout or poll word becomes non-zero */
+                so->so_pollword = 0;
+                mutex_unlock(&smb_socket_lock);
+                _swix(RT_TimedYield, _INR(1,2), &(so->so_pollword), timeout);
+                mutex_sleep_lock(&smb_socket_lock);
+            }
+            else if (read_size == 0)
+            {
+                /* End-of-file means remote has likely disconnected */
+                so->so_state = SOCK_DISCONNECTED;
+                mutex_unlock(&smb_socket_lock);
+
+                SMBDEBUG("sock_receivembuf read 0 bytes, remote closed?\n");
+                *recvlen = recv_local;
+                return 0;
+            }
+            else
+            {
+                chunk_size -= read_size;
+                recv_local += read_size;
+
+                if (chunk_size == 0)
+                    break;
+
+                /* partial read: adjust iovec and try to read some more */
+                while (read_size > 0)
+                {
+                    if (iov_idx->iov_len >= read_size)
+                    {
+                        iov_idx->iov_len -= read_size;
+                        iov_idx->iov_base = (void *)((uint8_t *)(iov_idx->iov_base) + read_size);
+                        read_size = 0;
+                    }
+                    else
+                    {
+                        read_size -= iov_idx->iov_len;
+                        ++iov_idx;
+                        --iov_len;
+
+                        /* Check array bounds for safety (this shouldn't happen). */
+                        if ((iov_idx - iov) >= UIO_SMALLIOV)
+                        {
+                            mutex_unlock(&smb_socket_lock);
+                            SMBERROR("sock_receivembuf internal error");
+                            return ENOBUFS;
+                        }
+                    }
+                }
+            }
+        }
+        mutex_unlock(&smb_socket_lock);
+    }
+    *recvlen = recv_local;
+    return 0;
+}
+
+/* Note: SMBX always passes NULL for msg, flags, and sentlen.  */
+errno_t
+sock_sendmbuf(socket_t so, const struct msghdr *msg, mbuf_t data, int flags,
+              size_t *sentlen)
+{
+    (void) msg; /* Ignored */
+    (void) flags; /* Ignored */
+    (void) sentlen; /* Ignored */
+
+    struct iovec iov[UIO_SMALLIOV];
+    int err = 0;
+    mbuf_t mb = data;
+    uint32_t timeout = _swi(OS_ReadMonotonicTime, _RETURN(0)) + (SMBSBTIMO * 100);
+
+    while (mb)
+    {
+        int chunk_size = 0;
+        int iov_len = 0;
+        while (mb && iov_len < UIO_SMALLIOV)
+        {
+            iov[iov_len].iov_base = mbuf_data(mb);
+            iov[iov_len].iov_len = mbuf_len(mb);
+            chunk_size += mbuf_len(mb);
+            ++iov_len;
+            mb = mbuf_next(mb);
+        }
+
+        mutex_sleep_lock(&smb_socket_lock);
+        struct iovec *iov_idx = iov;
+        while (chunk_size > 0)
+        {
+            ssize_t write_size = socketwritev(so->so_fd, iov_idx, iov_len);
+            int err = (write_size < 0) ? errno : 0;
+            if (err)
+            {
+                /* Fail on any error other than EINTR / EAGAIN */
+                if (err != EINTR && err != EAGAIN)
+                {
+                    mutex_unlock(&smb_socket_lock);
+                    SMBERROR("sock_sendmbuf socketwritev failed, errno %d\n",
+                             err);
+                    goto exit;
+                }
+
+                /* Check for timeout before sleeping */
+                if (_swi(OS_ReadMonotonicTime, _RETURN(0)) > timeout)
+                {
+                    mutex_unlock(&smb_socket_lock);
+                    SMBWARNING("sock_sendmbuf timeout, %d bytes remaining\n",
+                               chunk_size);
+                    err = EAGAIN;
+                    goto exit;
+                }
+
+                /* Sleep until timeout or poll word becomes non-zero */
+                so->so_pollword = 0;
+                mutex_unlock(&smb_socket_lock);
+                _swix(RT_TimedYield, _INR(1,2), &(so->so_pollword), timeout);
+                mutex_sleep_lock(&smb_socket_lock);
+            }
+            else
+            {
+                chunk_size -= write_size;
+                if (chunk_size == 0)
+                    break;
+
+                /* partial write: adjust iovec and try to write some more */
+                while (write_size > 0)
+                {
+                    if (iov_idx->iov_len >= write_size)
+                    {
+                        iov_idx->iov_len -= write_size;
+                        iov_idx->iov_base = (void *)((uint8_t *)(iov_idx->iov_base) + write_size);
+                        write_size = 0;
+                    }
+                    else
+                    {
+                        write_size -= iov_idx->iov_len;
+                        ++iov_idx;
+                        --iov_len;
+
+                        /* Check array bounds for safety (this shouldn't happen). */
+                        if ((iov_idx - iov) >= UIO_SMALLIOV)
+                        {
+                            mutex_unlock(&smb_socket_lock);
+                            SMBERROR("sock_sendmbuf internal error");
+                            err = ENOBUFS;
+                            goto exit;
+                        }
+                    }
+                }
+            }
+        }
+        mutex_unlock(&smb_socket_lock);
+    }
+
+exit:
+    mbuf_freem(data);   /* Assume data is non-NULL */
+    return err;
+}
+
+/* Called from assembler veneer. */
+int InternetEventFn_handler(_kernel_swi_regs *R)
+{
+    int result = 1;
+
+    if (R->r[0] == Internet_Event && (R->r[1] == Socket_Async_Event || R->r[1] == Socket_Broken_Event))
+    {
+        _kernel_irqs_on();
+
+        int fd = R->r[2];
+        uint32_t so_fd_hash = fd & SOCK_FD_TABLE_MASK;
+
+        /* Hopefully we don't sleep for too long inside this handler */
+        mutex_sleep_lock(&smb_socket_lock);
+
+        socket_t entry = smb_socket_table[so_fd_hash];
+
+        while (entry && entry->so_fd != fd)
+            entry = entry->so_next;
+
+        if (entry)
+        {
+            result = 0; /* claim event */
+            STAT(STA_SOCKET_EVENT);
+
+            if (R->r[1] == Socket_Broken_Event)
+                entry->so_state = SOCK_DISCONNECTED;
+
+            entry->so_pollword = 1;
+
+            mutex_unlock(&smb_socket_lock);
+
+            /* Assume the upcall finishes quickly and does its own locking */
+            if (entry->so_callback)
+                (*entry->so_callback)(entry, entry->so_cookie, 0);
+        }
+        else
+        {
+            mutex_unlock(&smb_socket_lock);
+        }
+
+        _kernel_irqs_off();
+    }
+
+    return result;
+}
+
+/* Module's private word, initialised in LanMan.c. */
+extern int LM_pw;
+
+/* This should be called by LM_initialise. */
+void socket_startup(void)
+{
+    _swix(OS_Claim, _INR(0, 2), EventV, (int)InternetEventFn, LM_pw);
+    _swix(OS_Byte, _INR(0, 1), 14, Internet_Event); /* Enable event */
+}
+
+/* This should be called before unloading the module. */
+void socket_quit(void)
+{
+    _swix(OS_Release, _INR(0, 2), EventV, (int)InternetEventFn, LM_pw);
+    _swix(OS_Byte, _INR(0, 1), 13, Internet_Event); /* Disable event */
+}

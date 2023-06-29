@@ -35,6 +35,7 @@
 #ifndef _NETSMB_SMB_SUBR_H_
 #define _NETSMB_SMB_SUBR_H_
 
+#ifndef __riscos
 #ifndef _KERNEL
 #error "This file shouldn't be included from userland programs"
 #endif
@@ -42,7 +43,51 @@
 #ifdef MALLOC_DECLARE
 MALLOC_DECLARE(M_SMBTEMP);
 #endif
+#endif
 
+/* Simple FNV-1a hash function for uint32_t input. Constants from:
+ * https://en.wikipedia.org/wiki/Fowler%E2%80%93Noll%E2%80%93Vo_hash_function
+ */
+
+#define FNV_OFFSET_BASIS        0x811c9dc5
+#define FNV_PRIME               0x01000193
+
+static inline uint32_t
+uint32_hash(uint32_t value)
+{
+    uint32_t hash = FNV_OFFSET_BASIS;
+
+    hash ^= (value & 0xFF);
+    hash *= FNV_PRIME;
+    value >>= 8;
+
+    hash ^= (value & 0xFF);
+    hash *= FNV_PRIME;
+    value >>= 8;
+
+    hash ^= (value & 0xFF);
+    hash *= FNV_PRIME;
+    value >>= 8;
+
+    hash ^= (value & 0xFF);
+    hash *= FNV_PRIME;
+
+    return hash;
+}
+
+static inline uint32_t
+smb_byte_array_hash(uint8_t *key, uint32_t len)
+{
+    uint32_t hash = FNV_OFFSET_BASIS;
+
+    for (uint32_t i = 0; i < len; ++i)
+    {
+        hash ^= key[i];
+        hash *= FNV_PRIME;
+    }
+
+    return hash;
+}
 
 #define SMB_NO_LOG_LEVEL        0x00
 #define SMB_LOW_LOG_LEVEL       0x01
@@ -149,7 +194,15 @@ extern int smbfs_loglevel;
 }
 
 #ifdef __riscos
-#define KASSERT SMB_ASSERT
+#ifdef SMB_DEBUG
+#define KASSERT(a, m) { \
+    if (!(a)) { \
+        panic(m); \
+    } \
+}
+#else
+#define KASSERT(a, m)
+#endif
 #endif
 
 #ifdef SMB_DEBUG

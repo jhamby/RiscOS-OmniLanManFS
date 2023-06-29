@@ -13,14 +13,14 @@
  * limitations under the License.
  */
 /*
-*  Lan Manager client
-*
-*  Stats.C -- Statistics gathering
-*
-*  Versions
-*  21-08-95 INH Original
-*
-*/
+ *  Lan Manager client
+ *
+ *  Stats.C -- Statistics gathering
+ *
+ *  Versions
+ *  21-08-95 INH Original
+ *
+ */
 
 /* Standard includes */
 
@@ -31,7 +31,7 @@
 #include "stdtypes.h"
 #include "Stats.h"
 
-int Stat_StatTable [STA_MAXSTATS];
+int Stat_StatTable[STA_MAXSTATS];
 int Stat_ClassMask;
 
 struct stat_info
@@ -43,25 +43,25 @@ struct stat_info
 
 #ifdef DEBUG
 static struct stat_info statinfo[] =
-{
-  STA_SERIOUS_BARF, SCLASS_GENERAL,  "Internal errors",
+    {
+        STA_SERIOUS_BARF, SCLASS_GENERAL, "Internal errors",
 
-  STA_IP_EVENTS,    SCLASS_IP,       "IP:  Internet events",
-  STA_IP_RXDGRAM,   SCLASS_IP,       "IP:  Receive datagrams",
+        STA_CONNECT_FAILED, SCLASS_IP, "IP: Connect failed",
+        STA_SOCKET_EVENT, SCLASS_IP, "IP: Internet event",
+        STA_REMOTE_CLOSED, SCLASS_IP, "IP: Remote closed connection",
 
-  -1, 0, NULL
-};
+        -1, 0, NULL};
 
 /* -------------- */
 
-void Stat_Show ( void )
+void Stat_Show(void)
 {
   int i;
-  for ( i=0; statinfo[i].stat_no >= 0; i++ )
+  for (i = 0; statinfo[i].stat_no >= 0; i++)
   {
-    if ( statinfo[i].sclass & Stat_ClassMask )
+    if (statinfo[i].sclass & Stat_ClassMask)
       printf("%-30s: %d\n", statinfo[i].name,
-             Stat_StatTable[statinfo[i].stat_no] );
+             Stat_StatTable[statinfo[i].stat_no]);
   }
   printf("\n");
 }
@@ -69,12 +69,12 @@ void Stat_Show ( void )
 
 /* ------------- */
 
-bool Stat_Init ( void )
+bool Stat_Init(void)
 {
   int i;
 
   Stat_ClassMask = SCLASS_GENERAL;
-  for (i=0; i<STA_MAXSTATS; i++)
+  for (i = 0; i < STA_MAXSTATS; i++)
     Stat_StatTable[i] = 0;
 
   return true;

@@ -20,23 +20,171 @@
  *
  * @APPLE_LICENSE_HEADER_END@
  */
-#ifdef KERNEL
-#define _KERNEL
+#ifndef SMB_RISCOS_H_
+#define SMB_RISCOS_H_
 
 #include "stdtypes.h"
 #include "smb_byte_order.h"
 
 #include <string.h>
+#include <sys/time.h>
 #include <unixlib.h>
+#include <sys/uio.h>
 
-/* Use the mbuf.h from the TCP/IP library, with default options */
+/* Copy definition from <sys/uio.h>, since KERNEL isn't defined. */
+
+struct proc;
+
+struct uio {
+    struct  iovec *uio_iov;
+    int     uio_iovcnt;
+    off_t   uio_offset;
+    int     uio_resid;
+    enum    uio_seg uio_segflg;
+    enum    uio_rw uio_rw;
+    struct  proc *uio_procp;
+};
+
+typedef struct uio *uio_t;
+
+/* Use <sys/mbuf.h> from the TCP/IP library, with default options */
+
+#define MBCTL_NAME mbctl
 #include <sys/mbuf.h>
 
 /* mbuf compatibility defines */
 
-typedef struct mbuf     *mbuf_t;
+typedef struct mbuf *mbuf_t;
 
-/* defined in mbuf.c */
+#define MBUF_WAITOK 0
+#define MBUF_TYPE_DATA 1
+
+#define m_nextpkt m_list
+#define m_flags m_sys3
+
+#define M_PKTHDR 0x02 /* start of record */
+#define M_EOR 0x04    /* end of record */
+
+/* mbuf pkthdr flags, also in m_flags */
+#define M_BCAST 0x10 /* send/received as link-level broadcast */
+#define M_MCAST 0x20 /* send/received as link-level multicast */
+
+/* flags copied when copying m_pkthdr */
+#define M_COPYFLAGS (M_PKTHDR | M_EOR | M_BCAST | M_MCAST)
+
+#define mbuf_len(mbuf) ((mbuf)->m_len)
+#define mbuf_setlen(mbuf, len) ((mbuf)->m_len = len)
+
+#define mbuf_maxlen(mbuf) ((mbuf)->m_inilen)
+
+#define mbuf_next(mbuf) ((mbuf)->m_next)
+#define mbuf_setnext(mbuf, next) ((mbuf)->m_next = next)
+
+#define mbuf_nextpkt(mbuf) ((mbuf)->m_nextpkt)
+#define mbuf_setnextpkt(mbuf, next) ((mbuf)->m_nextpkt = next)
+
+#define mbuf_pkthdr_len(mbuf) ((mbuf)->m_pkthdr.len)
+#define mbuf_pkthdr_setlen(mbuf, len) ((mbuf)->m_pkthdr.len = len)
+
+#define mbuf_free(mbuf) m_free(mbuf)
+#define mbuf_freem(mbuf) m_freem(mbuf)
+
+/* slightly modified macros from sys/mbuf.h */
+
+#define mbuf_leadingspace(m) \
+    ((m)->m_off - (m)->m_inioff)
+
+#define mbuf_trailingspace(m) \
+    ((m)->m_inioff + (m)->m_inilen - ((m)->m_off + (m)->m_len))
+
+/*
+ * Copy mbuf pkthdr from from to to.
+ * from must have M_PKTHDR set, and to must be empty.
+ */
+#define M_COPY_PKTHDR(to, from)                        \
+    {                                                  \
+        (to)->m_pkthdr = (from)->m_pkthdr;             \
+        (to)->m_flags = (from)->m_flags & M_COPYFLAGS; \
+        (to)->m_off = (to)->m_inioff;                  \
+    }
+
+/* Implemented in c/mbuf; copied from Networking/AUN/Internet/kern/c/uipc_mbuf. */
+
+extern struct mbuf *m_copym(struct mbuf *m, size_t offset, size_t len, int wait);
+
+/* inline definitions based on xnu's bsd/kern/kpi_mbuf.c */
+
+static inline int
+mbuf_get(int how, int type, mbuf_t *mbuf)
+{
+    (void)how; /* Unused */
+
+    /* Must set *mbuf to NULL in failure case */
+    *mbuf = m_alloc(0, NULL);
+    if (*mbuf)
+    {
+        (*mbuf)->m_type = type;
+        (*mbuf)->m_flags = 0;
+    }
+
+    return (*mbuf == NULL) ? ENOMEM : 0;
+}
+
+static inline int
+mbuf_gethdr(int how, int type, mbuf_t *mbuf)
+{
+    (void)how; /* Unused */
+
+    /* Must set *mbuf to NULL in failure case */
+    *mbuf = m_alloc(0, NULL);
+    if (*mbuf)
+    {
+        (*mbuf)->m_type = type;
+        (*mbuf)->m_flags = M_PKTHDR;
+    }
+
+    return (*mbuf == NULL) ? ENOMEM : 0;
+}
+
+static inline void *
+mbuf_data(mbuf_t mbuf)
+{
+    return (void *)((ptrdiff_t)(mbuf) + mbuf->m_off);
+}
+
+/* Manipulation */
+static inline int
+mbuf_copym(const mbuf_t src, size_t offset, size_t len, int how,
+           mbuf_t *new_mbuf)
+{
+    /* Must set *mbuf to NULL in failure case */
+    *new_mbuf = m_copym(src, offset, len, how);
+
+    return (*new_mbuf == NULL) ? ENOMEM : 0;
+}
+
+extern struct mbuf *
+m_prepend_2(struct mbuf *m, int len, int how);
+
+static inline int
+mbuf_prepend(mbuf_t *orig, size_t len, int how)
+{
+    /* Must set *orig to NULL in failure case */
+    *orig = m_prepend_2(*orig, len, how);
+
+    return (*orig == NULL) ? ENOMEM : 0;
+}
+
+static inline int
+mbuf_pullup(mbuf_t *mbuf, size_t len)
+{
+    /* Must set *mbuf to NULL in failure case */
+    *mbuf = m_ensure_contig(*mbuf, len);
+
+    return (*mbuf == NULL) ? ENOMEM : 0;
+}
+
+/* These are defined in mbuf.c */
 
 _kernel_oserror *mb_entryinit(void);
 _kernel_oserror *mb_close_session(void);
@@ -46,19 +194,7 @@ _kernel_oserror *mb_close_session(void);
  * starting "off" bytes from the beginning, extending the mbuf
  * chain if necessary.
  */
-void m_copyback(struct mbuf *m0, int off, int len, caddr_t cp);
-
-// mbuf_len()
-// mbuf_next()
-// mbuf_pkthdr_setlen()
-// mbuf_pkthdr_len()
-
-/* Use the uio.h from the TCP/IP library */
-#include <sys/uio.h>
-
-/* uio compatibility defines */
-
-typedef struct uio      uio_t;
+extern void m_copyback(struct mbuf *m0, int off, int len, caddr_t cp);
 
 /* Uppercase table; initialised in LanMan.c via Territory SWIs. */
 
@@ -69,47 +205,125 @@ static inline char smb_to_upper(char ch)
     return upper_case_table[(uint8_t)(ch)];
 }
 
-#define nanouptime(ts)  clock_gettime(CLOCK_MONOTONIC, ts)
+#define nanouptime(ts) clock_gettime(CLOCK_MONOTONIC, ts)
 
-#define M_SMBFSMNT M_TEMP /* HACK XXX CSM */
-#define M_SMBNODE M_TEMP /* HACK XXX CSM */
+/* Placeholder definitions */
+
+struct vfs_context;
+typedef struct vfs_context *vfs_context_t;
+
+/* Mutexes and readers-writer locks */
+
+#include <mutex.h>
+
+typedef mutex_t lck_mtx_t;
+
+#define lck_mtx_lock(m)     mutex_sleep_lock(m)
+#define lck_mtx_unlock(m)   mutex_unlock(m)
+
+typedef struct
+{
+    volatile uint32_t lck_rw_read_count;
+    mutex_t lck_rw_read_count_lock;
+    mutex_t lck_rw_write_lock;
+} lck_rw_t;
+
+static inline void
+lck_rw_init(lck_rw_t *lck)
+{
+    lck->lck_rw_read_count = 0;
+    lck->lck_rw_read_count_lock = MUTEX_UNLOCKED;
+    lck->lck_rw_write_lock = MUTEX_UNLOCKED;
+}
+
+static inline void
+lck_rw_lock_shared(lck_rw_t *lck)
+{
+    mutex_sleep_lock(&lck->lck_rw_read_count_lock);
+    if (++(lck->lck_rw_read_count) == 1)
+        mutex_sleep_lock(&lck->lck_rw_write_lock);
+
+    mutex_unlock(&lck->lck_rw_read_count_lock);
+}
+
+static inline void
+lck_rw_unlock_shared(lck_rw_t *lck)
+{
+    mutex_sleep_lock(&lck->lck_rw_read_count_lock);
+    if (--(lck->lck_rw_read_count) == 0)
+        mutex_unlock(&lck->lck_rw_write_lock);
+
+    mutex_unlock(&lck->lck_rw_read_count_lock);
+}
+
+static inline void
+lck_rw_lock_exclusive(lck_rw_t *lck)
+{
+    mutex_sleep_lock(&lck->lck_rw_write_lock);
+}
+
+static inline void
+lck_rw_unlock_exclusive(lck_rw_t *lck)
+{
+    mutex_unlock(&lck->lck_rw_write_lock);
+}
+
+typedef	unsigned char uuid_t[16];
+
+#define M_SMBFSMNT M_TEMP    /* HACK XXX CSM */
+#define M_SMBNODE M_TEMP     /* HACK XXX CSM */
 #define M_SMBNODENAME M_TEMP /* HACK XXX CSM */
-#define M_SMBFSDATA M_TEMP /* HACK XXX CSM */
-#define M_SMBFSHASH M_TEMP /* HACK XXX CSM */
-#define M_SMBFSFID M_TEMP /* HACK XXX CSM */
-#define M_SMBCONN M_TEMP /* HACK CSM XXX */
-#define M_NSMBDEV M_TEMP /* HACK CSM XXX */
-#define M_SMBIOD M_TEMP /* HACK CSM XXX */
-#define M_SMBRQ M_TEMP /* HACK CSM XXX */
-#define M_SMBDATA M_TEMP /* HACK CSM XXX */
-#define M_SMBSTR M_TEMP /* HACK CSM XXX */
-#define M_SMBTEMP M_TEMP /* HACK CSM XXX */
+#define M_SMBFSDATA M_TEMP   /* HACK XXX CSM */
+#define M_SMBFSHASH M_TEMP   /* HACK XXX CSM */
+#define M_SMBFSFID M_TEMP    /* HACK XXX CSM */
+#define M_SMBCONN M_TEMP     /* HACK CSM XXX */
+#define M_NSMBDEV M_TEMP     /* HACK CSM XXX */
+#define M_SMBIOD M_TEMP      /* HACK CSM XXX */
+#define M_SMBRQ M_TEMP       /* HACK CSM XXX */
+#define M_SMBDATA M_TEMP     /* HACK CSM XXX */
+#define M_SMBSTR M_TEMP      /* HACK CSM XXX */
+#define M_SMBTEMP M_TEMP     /* HACK CSM XXX */
 
 /* For RISC OS, ignore type and flags, and always zero the returned memory. */
-#define SMB_MALLOC(addr, cast, size, type, flags) do { addr = (cast)calloc(1, (size)); } while(0)
+#define SMB_MALLOC(addr, cast, size, type, flags) \
+    do                                            \
+    {                                             \
+        addr = (cast)calloc(1, (size));           \
+    } while (0)
 
 #ifndef SMB_DEBUG
-#define SMB_FREE(addr, type)    do { if (addr) free(addr); addr = NULL; } while(0)
-#else   // SMB_DEBUG
-#define SMB_FREE(addr, type) do { \
-    if (addr) {\
-        free(addr); \
-    } \
-    else { \
-        SMBERROR("%s: attempt to free NULL pointer, line %d\n", __FILE__, __LINE__); \
-    } \
-    addr = NULL; \
-} while(0)
-#endif  // SMB_DEBUG
+#define SMB_FREE(addr, type) \
+    do                       \
+    {                        \
+        if (addr)            \
+            free(addr);      \
+        addr = NULL;         \
+    } while (0)
+#else // SMB_DEBUG
+#define SMB_FREE(addr, type)                                                             \
+    do                                                                                   \
+    {                                                                                    \
+        if (addr)                                                                        \
+        {                                                                                \
+            free(addr);                                                                  \
+        }                                                                                \
+        else                                                                             \
+        {                                                                                \
+            SMBERROR("%s: attempt to free NULL pointer, line %d\n", __FILE__, __LINE__); \
+        }                                                                                \
+        addr = NULL;                                                                     \
+    } while (0)
+#endif // SMB_DEBUG
 
 #undef FB_CURRENT
 
 /* Max number of times we will attempt to open in a reconnect */
-#define SMB_MAX_REOPEN_CNT  25
+#define SMB_MAX_REOPEN_CNT 25
 
 #ifndef __riscos
 
-typedef enum modeventtype {
+typedef enum modeventtype
+{
     MOD_LOAD,
     MOD_UNLOAD,
     MOD_SHUTDOWN
@@ -119,64 +333,65 @@ typedef struct kmod_info *module_t;
 
 typedef int (*modeventhand_t)(module_t mod, int what, void *arg);
 
-typedef struct moduledata {
-    const char      *name;  /* module name */
-    modeventhand_t  evhand; /* event handler */
-    void        *priv;  /* extra data */
+typedef struct moduledata
+{
+    const char *name;      /* module name */
+    modeventhand_t evhand; /* event handler */
+    void *priv;            /* extra data */
 } moduledata_t;
 
-#define DECLARE_MODULE(name, data, sub, order)              \
-    moduledata_t * _smb_md_##name = &data;
-#define SEND_EVENT(name, event)                     \
-    {                               \
-        extern moduledata_t * _smb_md_##name;       \
-        if (_smb_md_##name) \
-        _smb_md_##name->evhand(smbfs_kmod_infop,        \
-                     event,             \
-                     _smb_md_##name->priv);     \
+#define DECLARE_MODULE(name, data, sub, order) \
+    moduledata_t *_smb_md_##name = &data;
+#define SEND_EVENT(name, event)                           \
+    {                                                     \
+        extern moduledata_t *_smb_md_##name;              \
+        if (_smb_md_##name)                               \
+            _smb_md_##name->evhand(smbfs_kmod_infop,      \
+                                   event,                 \
+                                   _smb_md_##name->priv); \
     }
-#define DEV_MODULE(name, evh, arg) \
-    static moduledata_t name##_mod = {  \
-        #name,              \
-        evh,                \
-        arg             \
-    };                  \
+#define DEV_MODULE(name, evh, arg)     \
+    static moduledata_t name##_mod = { \
+        #name,                         \
+        evh,                           \
+        arg};                          \
     DECLARE_MODULE(name, name##_mod, SI_SUB_DRIVERS, SI_ORDER_ANY);
 
 struct smbnode;
-extern int  smb_smb_flush __P((struct smbnode *, vfs_context_t));
+extern int smb_smb_flush __P((struct smbnode *, vfs_context_t));
 
-typedef int  vnop_t __P((void *));
+typedef int vnop_t __P((void *));
 
-#define vn_todev(vp) (vnode_vtype(vp) == VBLK || vnode_vtype(vp) == VCHR ? \
-              vnode_specrdev(vp) : NODEV)
+#define vn_todev(vp) (vnode_vtype(vp) == VBLK || vnode_vtype(vp) == VCHR ? vnode_specrdev(vp) : NODEV)
 
-#endif  /* !__riscos */
+#endif /* !__riscos */
 
 void timevaladd(struct timeval *, struct timeval *);
 void timevalsub(struct timeval *, struct timeval *);
-#define timevalcmp(l, r, cmp)   timercmp(l, r, cmp)
-#define timespeccmp(tvp, uvp, cmp)                \
-    (((tvp)->tv_sec == (uvp)->tv_sec) ?          \
-        ((tvp)->tv_nsec cmp (uvp)->tv_nsec) :          \
-        ((tvp)->tv_sec cmp (uvp)->tv_sec))
-#define timespecadd(vvp, uvp)                      \
-    do {                            \
-        (vvp)->tv_sec += (uvp)->tv_sec;          \
-        (vvp)->tv_nsec += (uvp)->tv_nsec;          \
-        if ((vvp)->tv_nsec >= 1000000000) {      \
-            (vvp)->tv_sec++;                \
-            (vvp)->tv_nsec -= 1000000000;          \
-        }                          \
+#define timevalcmp(l, r, cmp) timercmp(l, r, cmp)
+#define timespeccmp(tvp, uvp, cmp) \
+    (((tvp)->tv_sec == (uvp)->tv_sec) ? ((tvp)->tv_nsec cmp(uvp)->tv_nsec) : ((tvp)->tv_sec cmp(uvp)->tv_sec))
+#define timespecadd(vvp, uvp)             \
+    do                                    \
+    {                                     \
+        (vvp)->tv_sec += (uvp)->tv_sec;   \
+        (vvp)->tv_nsec += (uvp)->tv_nsec; \
+        if ((vvp)->tv_nsec >= 1000000000) \
+        {                                 \
+            (vvp)->tv_sec++;              \
+            (vvp)->tv_nsec -= 1000000000; \
+        }                                 \
     } while (0)
-#define timespecsub(vvp, uvp)                      \
-    do {                            \
-        (vvp)->tv_sec -= (uvp)->tv_sec;          \
-        (vvp)->tv_nsec -= (uvp)->tv_nsec;          \
-        if ((vvp)->tv_nsec < 0) {              \
-            (vvp)->tv_sec--;                \
-            (vvp)->tv_nsec += 1000000000;          \
-        }                          \
+#define timespecsub(vvp, uvp)             \
+    do                                    \
+    {                                     \
+        (vvp)->tv_sec -= (uvp)->tv_sec;   \
+        (vvp)->tv_nsec -= (uvp)->tv_nsec; \
+        if ((vvp)->tv_nsec < 0)           \
+        {                                 \
+            (vvp)->tv_sec--;              \
+            (vvp)->tv_nsec += 1000000000; \
+        }                                 \
     } while (0)
 
-#endif /* KERNEL */
+#endif /* SMB_RISCOS_H_ */

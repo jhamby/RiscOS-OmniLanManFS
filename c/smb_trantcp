@@ -35,21 +35,21 @@
 
 #ifdef __riscos
 
-#include <sys/uio.h>
-#include <sys/socket.h>
+#include <unixlib.h>
 
-#include <net/if.h>
-#include <net/route.h>
-
-#include <netinet/in.h>
-#include <netinet/tcp.h>
-
-#include "stdtypes.h"
 #include "smb_riscos.h"
 #include "smb_subr.h"
 
 #include "smb_mchain.h"
+#include "smb_socket.h"
 #include "netbios.h"
+
+#include "smb_smb.h"
+#include "smb_2.h"
+#include "smb_conn.h"
+#include "smb_rq.h"
+#include "smb_tran.h"
+#include "smb_trantcp.h"
 
 #else
 #include <sys/param.h>
@@ -87,12 +87,19 @@
 
 #define M_NBDATA    M_PCB
 
+#ifdef __riscos
+static uint32_t smb_tcpsndbuf = 64 * 1024; /* RISC OS has a small mbuf pool */
+static uint32_t smb_tcprcvbuf = 64 * 1024;
+#else
 static uint32_t smb_tcpsndbuf = 4 * 1024 * 1024; /* SMBX srvr starts at 4 MB */
 static uint32_t smb_tcprcvbuf = 4 * 1024 * 1024;
+#endif
 
+#ifndef __riscos
 SYSCTL_DECL(_net_smb_fs);
 SYSCTL_INT(_net_smb_fs, OID_AUTO, tcpsndbuf, CTLFLAG_RW, &smb_tcpsndbuf, 0, "");
 SYSCTL_INT(_net_smb_fs, OID_AUTO, tcprcvbuf, CTLFLAG_RW, &smb_tcprcvbuf, 0, "");
+#endif
 
 static int nbssn_recv(struct nbpcb *nbp, mbuf_t *mpp, int *lenp, uint8_t *rpcodep,
                       struct timespec *wait_time);
@@ -107,13 +114,18 @@ nb_setsockopt_int(socket_t so, int level, int name, int val)
 static void
 nb_upcall(socket_t so, void *arg, int waitflag)
 {
+#ifdef __riscos
+    (void) so;
+    (void) waitflag;
+#else
 #pragma unused(so, waitflag)
+#endif
     struct nbpcb *nbp = (struct nbpcb *)arg;
 
     /* sanity check make sure everything seems ok */
     if ((so == NULL) || (nbp == NULL) || (nbp->nbp_tso == NULL) || (nbp->nbp_tso != so)) {
 #ifdef SMB_DEBUG
-        /* Don't log if nbp_tso is null we could be getting called after a disconnect */
+        /* Don't log if nbp_tso is null, we could be getting called after a disconnect */
         if (nbp && nbp->nbp_tso) {
             SMBDEBUG("UPCALLED: so = %p nbp = %p nbp->nbp_tso = %p\n", so, nbp, (nbp) ? nbp->nbp_tso : NULL);
         }
@@ -132,6 +144,7 @@ nb_upcall(socket_t so, void *arg, int waitflag)
         nbp->nbp_upcall(nbp->nbp_selectid);
     } else if (nbp->nbp_selectid)
         wakeup(nbp->nbp_selectid);
+
     lck_mtx_unlock(&nbp->nbp_lock);
     return;
 }
@@ -143,10 +156,10 @@ nb_sethdr(struct nbpcb *nbp, mbuf_t m, uint8_t type, uint32_t len)
 
     if (nbp->nbp_flags & NBF_NETBIOS) {
         /* NetBIOS connection the length field is 17 bits */
-        *p = htonl((len & SMB_MAXPKTLEN) | (type << 24));
+        *p = (uint32_t) htonl((len & SMB_MAXPKTLEN) | ((uint32_t)(type) << 24));
     } else {
         /* NetBIOS-less connection the length field is 24 bits */
-        *p = htonl((len & SMB_LARGE_MAXPKTLEN) | (type << 24));
+        *p = (uint32_t) htonl((len & SMB_LARGE_MAXPKTLEN) | ((uint32_t)(type) << 24));
     }
 
     return (0);
@@ -178,7 +191,9 @@ static int tcp_connect(struct nbpcb *nbp, struct sockaddr *to)
 {
     socket_t so;
     int error;
+#ifndef __riscos
     struct timeval  tv;
+#endif
     int optlen;
     uint32_t bufsize, default_size;
 
@@ -187,6 +202,9 @@ static int tcp_connect(struct nbpcb *nbp, struct sockaddr *to)
         return (error);
 
     nbp->nbp_tso = so;
+
+    /* RISC OS uses non-blocking sockets, handling timeouts in smb_socket.c. */
+#ifndef __riscos
     tv.tv_sec = SMBSBTIMO;
     tv.tv_usec = 0;
     error = sock_setsockopt(so, SOL_SOCKET, SO_RCVTIMEO, &tv, (int)sizeof(tv));
@@ -196,8 +214,9 @@ static int tcp_connect(struct nbpcb *nbp, struct sockaddr *to)
     error = sock_setsockopt(so, SOL_SOCKET, SO_SNDTIMEO, &tv, (int)sizeof(tv));
     if (error)
         goto bad;
+#endif
 
-    sock_getsockopt(so, SOL_SOCKET, SO_RCVBUF, &nbp->nbp_rcvchunk, &optlen);
+    error = sock_getsockopt(so, SOL_SOCKET, SO_RCVBUF, &nbp->nbp_rcvchunk, &optlen);
     if (error) {
         goto bad;
     }
@@ -230,14 +249,24 @@ static int tcp_connect(struct nbpcb *nbp, struct sockaddr *to)
             bufsize = nbp->nbp_sndbuf;
             optlen = sizeof(bufsize);
             error = sock_setsockopt(so, SOL_SOCKET, SO_SNDBUF, &bufsize, optlen);
-            if ((error == 0) && (bufsize > 0x100000)) {
+            if (error == 0) {
                 /* Currently, 1 MB seems to work fine */
                 break;
             } else {
+#ifdef __riscos
+                /* Reduce by 4K and try again */
+                nbp->nbp_sndbuf -= 0x1000;
+#else
                 /* Reduce by 64K and try again */
                 nbp->nbp_sndbuf -= 0x10000;
+#endif
             }
-        } while (nbp->nbp_sndbuf >= 0x100000);
+        }
+#ifdef __riscos
+        while (nbp->nbp_sndbuf >= NB_SORECEIVE_CHUNK);
+#else
+        while (nbp->nbp_sndbuf >= 0x100000);
+#endif
     }
     if (error) {
         nbp->nbp_sndbuf = default_size;
@@ -258,6 +287,7 @@ static int tcp_connect(struct nbpcb *nbp, struct sockaddr *to)
     if (error)
         goto bad;
 
+#ifndef __riscos
     /* set SO_NOADDRERR to detect network changes ASAP */
     error = nb_setsockopt_int(so, SOL_SOCKET, SO_NOADDRERR, 1);
     if (error)  /* Should we error out if this fails? */
@@ -269,17 +299,20 @@ static int tcp_connect(struct nbpcb *nbp, struct sockaddr *to)
     error = sock_nointerrupt(so, 0);
     if (error)
         goto bad;
+#endif
 
     error = sock_connect(so, (struct sockaddr*)to, MSG_DONTWAIT);
     if (error && error != EINPROGRESS)
         goto bad;
 
+#ifndef __riscos
     tv.tv_sec = 2;
     tv.tv_usec = 0;
     while ((error = sock_connectwait(so, &tv)) == EINPROGRESS) {
         if ((error = smb_iod_nb_intr(nbp->nbp_vc)))
             break;
     }
+#endif
     if (!error)
         return (0);
 
@@ -345,7 +378,7 @@ nbssn_rq_request(struct nbpcb *nbp)
             break;
         }
         md_get_mem(mdp, (caddr_t)&sin.sin_addr, 4, MB_MSYSTEM);
-        md_get_uint16(mdp, &port);
+        md_get_uint16le(mdp, &port);
         sin.sin_port = port;
         nbp->nbp_state = NBST_RETARGET;
         smb_nbst_disconnect(nbp->nbp_vc);
@@ -428,7 +461,11 @@ static int nbssn_recvhdr(struct nbpcb *nbp, uint32_t *lenp, uint8_t *rpcodep,
         }
         if (error) {
             if ((error == EWOULDBLOCK) && resid && (resid < sizeof(len)))
+#ifdef __riscos
+                SMBERROR("Timed out reading the nbt header: missing %u bytes\n", resid);
+#else
                 SMBERROR("Timed out reading the nbt header: missing %ld bytes\n", resid);
+#endif
             return error;
         }
 
@@ -532,7 +569,7 @@ static int nbssn_recv(struct nbpcb *nbp, mbuf_t *mpp, int *lenp, uint8_t *rpcode
              * connection and give up. If we went to sleep then we reset our start timer to when we
              * woke up. Now for the reason behind the fix. We have the message length, but looks
              * like only part of the message has made it in. We went to sleep and the server
-             * broke the connect while we were still a sleep. Looks like we got the first
+             * broke the connect while we were still asleep. Looks like we got the first
              * ethernet packet but not the rest. We are in a loop waiting for the rest of the
              * message. Since we can't send in this state there is no way for us to know that
              * the connect is really down.
@@ -543,10 +580,12 @@ static int nbssn_recv(struct nbpcb *nbp, mbuf_t *mpp, int *lenp, uint8_t *rpcode
                 error = sock_receivembuf(so, NULL, &tm, MSG_WAITALL, &recvdlen);
                 if (error == EAGAIN) {
                     nanouptime(&tend);
-                    /* We fell asleep reset our timer to the wake up timer */
+#ifndef __riscos
+                    /* We fell asleep, reset our timer to the wake up timer */
                     if (tstart.tv_sec < gWakeTime.tv_sec)
                         tstart.tv_sec = gWakeTime.tv_sec;
-                        /* Ok we have tried hard enough just break the connection and give up. */
+#endif
+                    /* Ok we have tried hard enough just break the connection and give up. */
                     if (tend.tv_sec > (tstart.tv_sec + SMB_SB_RCVTIMEO)) {
                         error = EPIPE;
                         SMBERROR("Breaking connection, sock_receivembuf blocked for %d\n",
@@ -582,7 +621,7 @@ static int nbssn_recv(struct nbpcb *nbp, mbuf_t *mpp, int *lenp, uint8_t *rpcode
              * the new chain on the end. Consumer will pullup as required.
              */
             if (!m) {
-                m = (mbuf_t )tm;
+                m = (mbuf_t)tm;
                 m_fixhdr(m); /* Work around <15114764> */
             } else if (tm) {
                 mbuf_cat_internal(m, (mbuf_t )tm);
@@ -892,7 +931,11 @@ smb_nbst_recv(struct smb_vc *vcp, mbuf_t *mpp)
 static void
 smb_nbst_timo(struct smb_vc *vcp)
 {
+#ifdef __riscos
+    (void) vcp;
+#else
     #pragma unused(vcp)
+#endif
     return;
 }
 
@@ -920,7 +963,7 @@ smb_nbst_getparam(struct smb_vc *vcp, int param, void *data)
         *(void **)data = nbp->nbp_selectid;
         break;
         case SMBTP_UPCALL:
-        *(void **)data = nbp->nbp_upcall;
+        *(void **)data = (void *) nbp->nbp_upcall;
         break;
         default:
         return (EINVAL);
@@ -943,7 +986,7 @@ smb_nbst_setparam(struct smb_vc *vcp, int param, void *data)
         nbp->nbp_selectid = data;
         break;
         case SMBTP_UPCALL:
-        nbp->nbp_upcall = data;
+        nbp->nbp_upcall = (void (*)(void *)) data;
         break;
         default:
         return (EINVAL);

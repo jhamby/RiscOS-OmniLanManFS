@@ -125,7 +125,7 @@ struct smb_open_dir {
     struct smbfs_fctx *fctx;        /* ff context */
     void            *nextEntry;     /* directory entry that didn't fit */
     int32_t         nextEntryLen;   /* size of directory entry that didn't fit */
-    int32_t         nextEntryFlags; /* flags that the next entry was create with */
+    int32_t         nextEntryFlags; /* flags that the next entry was created with */
     off_t           offset;         /* last ff offset */
     uint32_t        needReopen;     /* Need to reopen the notification */
     uint32_t        needsUpdate;
@@ -180,24 +180,28 @@ struct smbnode {
     uid_t               n_nfs_uid;
     gid_t               n_nfs_gid;
     int                 set_create_va_mode;
+#ifndef __riscos
     time_t              finfo_cache_timer;      /* finder info cache timer, only used by the data node */
     uint8_t             finfo[FINDERINFOSIZE];  /* finder info , only used by the data node */
     time_t              rfrk_cache_timer;       /* resource stream size cache timer, only used by the data node */
     u_quad_t            rfrk_size;              /* resource stream size, only used by the data node */
     u_quad_t            rfrk_alloc_size;        /* resource stream alloc size */
     lck_mtx_t           rfrkMetaLock;           /* Locks the resource size and resource cache timer */
+#endif
     uint64_t            n_ino;
     uint64_t            n_nlinks;               /* Currently only supported when using the new UNIX Extensions */
     SInt32              n_child_refcnt;         /* Each child node holds a refcnt */
     union {
         struct smb_open_dir dir;
         struct smb_open_file file;
-    }open_type;
+    } open_type;
+#ifndef __riscos
     void                *acl_cache_data;
     time_t              acl_cache_timer;
     int                 acl_error;
     size_t              acl_cache_len;
     lck_mtx_t           f_ACLCacheLock;     /* Locks the ACL Cache */
+#endif
     lck_rw_t            n_name_rwlock;      /* Read/Write lock for n_name */
     lck_rw_t            n_parent_rwlock;    /* Read/Write lock for n_parent */
     char                *n_name;            /* node's file or directory name */
@@ -285,9 +289,11 @@ typedef enum _SMBFS_GET_UGM_FLAGS
     SMBFS_GET_UGM_REMOVE_POSIX_MODES = 0x0002
 } _SMBFS_GET_UGM_FLAGS;
 
+#ifndef __riscos
 extern lck_attr_t *smbfs_lock_attr;
 extern lck_grp_t *smbfs_mutex_group;
 extern lck_grp_t *smbfs_rwlock_group;
+#endif
 
 struct smbfattr;
 

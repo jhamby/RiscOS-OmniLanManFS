@@ -46,7 +46,7 @@ swi-decoding-table:    LanMan,
    OmniOp, FreeOp, NameOp, Transact, LogonOp
 
 vector-handlers: NBIP_CallbackFn/NBIP_CallbackFn_handler_ctrl,
-                 EventFn
+                 InternetEventFn
 
 #ifdef NO_INTERNATIONAL_HELP
 

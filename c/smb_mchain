@@ -37,10 +37,6 @@
 
 #ifdef __riscos
 
-#include <sys/mbuf.h>
-#include <sys/uio.h>
-
-#include "stdtypes.h"
 #include "smb_riscos.h"
 #include "smb_subr.h"
 #include "smb_mchain.h"
@@ -76,7 +72,7 @@ size_t m_fixhdr(mbuf_t m0)
     return mbuf_pkthdr_len(m0);
 }
 
-#ifdef KERNEL
+#if defined(KERNEL) || defined(__riscos)
 
 /*
  * There is no KPI call for m_cat. Josh gave me the following
@@ -123,7 +119,6 @@ static uint32_t mbuf_minclsize()
  * up everything we have already allocated and return NULL.
  *
  */
-static
 mbuf_t smb_mbuf_getm(mbuf_t m, size_t len, int how, int type)
 {
     size_t mbuf_space;
@@ -133,6 +128,7 @@ mbuf_t smb_mbuf_getm(mbuf_t m, size_t len, int how, int type)
 
     if (mbuf_get(how, type, &mp))
         return (NULL);
+#ifndef __riscos
     else if (len > mbuf_minclsize()) {
         if ((mbuf_mclget(how, type, &mp)) ||
             ((mbuf_flags(mp) & MBUF_EXT) == 0)) {
@@ -140,6 +136,7 @@ mbuf_t smb_mbuf_getm(mbuf_t m, size_t len, int how, int type)
             return (NULL);
         }
     }
+#endif
     mbuf_setlen(mp, 0);
     mbuf_space = mbuf_trailingspace(mp);
     /* len is a size_t so it can't go negative */
@@ -160,11 +157,13 @@ mbuf_t smb_mbuf_getm(mbuf_t m, size_t len, int how, int type)
 
         mbuf_setnext(tail, mp);
         tail = mp;
+#ifndef __riscos
         if (len > mbuf_minclsize()) {
             if ((mbuf_mclget(how, type, &mp)) ||
                 ((mbuf_flags(mp) & MBUF_EXT) == 0))
                 goto failed;
         }
+#endif
         mbuf_setlen(mp, 0);
         mbuf_space = mbuf_trailingspace(mp);
         /* len is a size_t so it can't go negative */
@@ -183,7 +182,7 @@ failed:
     return (NULL);
 }
 
-#else // KERNEL
+#else // KERNEL || __riscos
 
 /*
  * We handle this routine differently in userland, than the kernel. See the
@@ -267,7 +266,7 @@ void mb_consume(mbchain_t mbp, size_t size)
     mbuf_setlen(mbp->mb_cur, mbuf_len(mbp->mb_cur)+size);
 }
 
-#endif // KERNEL
+#endif // KERNEL || __riscos
 
 /*
  * Routines for putting data into an mbuf chain
@@ -286,7 +285,7 @@ mb_init(mbchain_t mbp)
 {
     mbuf_t m = NULL;
 
-    /* mbuf_gethdr now intialize all of the fields */
+    /* mbuf_gethdr now initializes all of the fields */
     if (mbuf_gethdr(MBUF_WAITOK, MBUF_TYPE_DATA, &m))
         return ENOBUFS;
     mb_initm(mbp, m);
@@ -333,8 +332,8 @@ void * mb_reserve(mbchain_t mbp, size_t size)
             return NULL;
         /* This check was done up above before KPI code */
         if (size > mbuf_maxlen(nm)) {
-#ifdef KERNEL
-            SMBERROR("mb_reserve: size = %ld\n", size);
+#if defined(KERNEL) || defined(__riscos)
+            SMBERROR("mb_reserve: size = %u\n", size);
 #else // KERNEL
             smb_log_info("%s - mb_reserve: size = %ld, syserr = %s",
                          ASL_LEVEL_ERR, __FUNCTION__, size, strerror(EBADRPC));
@@ -479,7 +478,7 @@ int mb_put_mbuf(mbchain_t mbp, mbuf_t m)
     return 0;
 }
 
-#ifdef KERNEL
+#if defined(KERNEL)
 /*
  * copies a uio scatter/gather list to an mbuf chain.
  */
@@ -524,6 +523,7 @@ int mb_put_uio(mbchain_t mbp, uio_t uiop, size_t size)
     return 0;
 }
 
+#ifndef __riscos
 /*
  * Given a user land pointer place the data in a mbuf chain.
  */
@@ -546,7 +546,8 @@ int mb_put_user_mem(mbchain_t mbp, user_addr_t bufp, int size, off_t offset, vfs
     uio_free(auio);
     return error;
 }
-#endif // KERNEL
+#endif  /* __riscos */
+#endif // KERNEL || __riscos
 
 /*
  * Routines for fetching data from an mbuf chain
@@ -570,7 +571,7 @@ int md_init(mdchain_t mdp)
     return 0;
 }
 
-#ifndef KERNEL
+#if !defined(KERNEL) && !defined(__riscos)
 int md_init_rcvsize(mdchain_t mdp, size_t size)
 {
     mbuf_t  m = NULL;
@@ -583,7 +584,7 @@ int md_init_rcvsize(mdchain_t mdp, size_t size)
     md_initm(mdp, m);
     return 0;
 }
-#endif // KERNEL
+#endif // KERNEL || __riscos
 
 void md_shadow_copy(const mdchain_t mdp, mdchain_t shadow)
 {
@@ -600,7 +601,7 @@ void md_done(mdchain_t mdp)
     }
 }
 
-#ifdef KERNEL
+#if defined(KERNEL) || defined(__riscos)
 /*
  * Append a separate mbuf chain. It is caller responsibility to prevent
  * multiple calls to fetch/record routines.
@@ -637,7 +638,7 @@ int md_next_record(mdchain_t mdp)
     md_initm(mdp, m);
     return 0;
 }
-#endif // KERNEL
+#endif // KERNEL || __riscos
 
 int md_get_uint8(mdchain_t mdp, uint8_t *x)
 {
@@ -797,8 +798,8 @@ int md_get_mem(mdchain_t mdp, caddr_t target, size_t size, int type)
     while (size > 0) {
         if (m == NULL) {
             /* Note some calls expect this to happen, see notify change */
-#ifdef KERNEL
-            SMBWARNING("WARNING: Incomplete copy original size = %ld size = %ld\n", size_request, size);
+#if defined(KERNEL) || defined(__riscos)
+            SMBWARNING("WARNING: Incomplete copy original size = %u size = %u\n", size_request, size);
 #else // KERNEL
             smb_log_info("%s - WARNING: Incomplete copy original size = %ld size = %ld, syserr = %s",
                          ASL_LEVEL_DEBUG, __FUNCTION__, size_request, size, strerror(EBADRPC));
@@ -835,7 +836,7 @@ int md_get_mem(mdchain_t mdp, caddr_t target, size_t size, int type)
     return 0;
 }
 
-#ifdef KERNEL
+#if defined(KERNEL)
 int md_get_mbuf(mdchain_t mdp, size_t size, mbuf_t *ret)
 {
     mbuf_t m = mdp->md_cur, rm;
@@ -885,7 +886,7 @@ int md_get_uio(mdchain_t mdp, uio_t uiop, int32_t size)
     return 0;
 }
 
-
+#ifndef __riscos
 /*
  * Given a user land pointer place the data in a mbuf chain.
  */
@@ -909,4 +910,5 @@ int md_get_user_mem(mdchain_t mdp, user_addr_t bufp, int size, off_t offset,
     uio_free(auio);
     return error;
 }
-#endif // KERNEL
+#endif  /* __riscos */
+#endif // KERNEL || __riscos
